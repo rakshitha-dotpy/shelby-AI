@@ -104,7 +104,6 @@
       background: transparent;
       transform: translateX(100%);
       transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: none;
       pointer-events: auto;
     }
     #shelby-ai-panel.shelby-panel-open {
@@ -116,16 +115,19 @@
   document.body.appendChild(iframe);
 
   // 4. Initialize Mascot
-  if (window.ShelbyMascot) {
-    window.ShelbyMascot.create({ mode, badgeText: 'Shelby AI' });
-    
-    // Subtle float notice after 1.5 seconds for recognized pages
-    if (mode !== 'General') {
-      setTimeout(() => {
-        window.ShelbyMascot.showNotice();
-      }, 1500);
+  let visionOnCached = true;
+  chrome.storage.local.get('shelby_vision', (config) => {
+    visionOnCached = config.shelby_vision !== false;
+    if (window.ShelbyMascot) {
+      window.ShelbyMascot.create({ mode, badgeText: 'Shelby AI' });
+      // Show mini notice popup only if Vision is enabled
+      if (mode !== 'General' && visionOnCached) {
+        setTimeout(() => {
+          window.ShelbyMascot.showNotice();
+        }, 1500);
+      }
     }
-  }
+  });
 
   let isPanelOpen = false;
 
@@ -227,21 +229,21 @@
     return false;
   }
 
-  // 5. Scrape DOM Contents (Respected by Privacy Flag)
+  // 5. Scrape DOM Contents separately into page_context and conversation_context
   async function scrapePageContent() {
-    // Check global privacy flag first
     const config = await chrome.storage.local.get('shelby_vision');
     const visionOn = config.shelby_vision !== false;
     
     if (!visionOn) {
       console.log("Shelby Vision is OFF: Scraping disabled.");
-      return "Shelby Vision is currently disabled. Shelby cannot read the page content until enabled.";
+      return { page_context: "", conversation_context: "" };
     }
 
-    let scrapedText = "";
+    let pageContext = "";
+    let conversationContext = "";
     
     if (mode === 'Shopping') {
-      const priceSelectors = ['.a-price-whole', '.selling-price', '.pdp-price', '.price', '[data-testid="price-display"]'];
+      const priceSelectors = ['.a-price-whole', '.selling-price', '.pdp-price', '.price', '[data-testid="price-display"]', '.a-offscreen'];
       let price = '';
       for (const s of priceSelectors) {
         const el = document.querySelector(s);
@@ -250,33 +252,85 @@
           break;
         }
       }
-      const reviewText = document.body.innerText.slice(0, 4000);
-      scrapedText = `Product: ${document.title}\nPrice: ${price}\nReview Excerpts:\n${reviewText}`;
+      if (!price) {
+        // Try fallback selector search
+        const priceEl = document.querySelector('[class*="price"], [class*="Price"]');
+        if (priceEl) price = priceEl.innerText.trim();
+      }
+      
+      // Grab main details/description block if available, fallback to body text
+      const descEl = document.getElementById('feature-bullets') || document.querySelector('[class*="description"]') || document.body;
+      const details = descEl.innerText.slice(0, 3500);
+      
+      pageContext = `Product Title: ${document.title}\nExtracted Price: ${price}\nProduct Excerpts:\n${details}`;
+      conversationContext = "";
+      
     } else if (mode === 'Email') {
-      const subject = document.querySelector('h2.hP')?.innerText || 'Unknown Subject';
-      const body = document.querySelector('.a3s')?.innerText || document.body.innerText.slice(0, 4000);
-      scrapedText = `Subject: ${subject}\nEmail Details:\n${body}`;
+      const subject = document.querySelector('h1, h2.hP')?.innerText || document.title;
+      // Gmail specific sender and body threads selector check
+      const sender = document.querySelector('.gD')?.innerText || 'Unknown';
+      const bodyEl = document.querySelector('.a3s') || document.body;
+      const emails = bodyEl.innerText.slice(0, 3000);
+      
+      pageContext = `Email Thread Info:\nSubject: ${subject}\nActive Sender: ${sender}`;
+      conversationContext = emails;
+      
     } else if (mode === 'Messaging') {
-      const chatPane = document.querySelector('[data-tab="8"]') || document.body;
-      const visibleMsg = chatPane.innerText.slice(-3000);
-      scrapedText = `Conversation Log:\n${visibleMsg}`;
+      // Find active WhatsApp or Instagram chat contact header
+      const contactEl = document.querySelector('header span[title], [class*="ChatHeader"] span, [class*="chat-header"]');
+      const contactName = contactEl ? (contactEl.getAttribute('title') || contactEl.innerText.trim()) : 'Unknown Contact';
+      
+      pageContext = `Platform: ${window.location.hostname}\nActive Contact: ${contactName}`;
+      
+      // WhatsApp Message Bubble Scraping
+      let messages = [];
+      const bubbleSelector = '.message-in, .message-out, [class*="message-in"], [class*="message-out"], [data-pre-plain-text]';
+      const msgElements = Array.from(document.querySelectorAll(bubbleSelector));
+      
+      if (msgElements.length > 0) {
+        // Grab last 15 message bubbles
+        const recentMsgs = msgElements.slice(-15);
+        recentMsgs.forEach(el => {
+          const textEl = el.querySelector('.copyable-text span, [class*="message-text"], span');
+          const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+          if (text) {
+            const isMe = !(el.classList.contains('message-in') || el.className.includes('message-in'));
+            const senderTag = isMe ? 'Me' : 'Them';
+            messages.push(`${senderTag}: ${text}`);
+          }
+        });
+      }
+      
+      if (messages.length === 0) {
+        // General Messaging chat panel fallback
+        const chatPane = document.querySelector('[class*="chat-body"], [class*="conversation"], [role="application"]') || document.body;
+        const lines = chatPane.innerText.split('\n').filter(l => l.trim().length > 0);
+        messages = lines.slice(-15).map(l => `Line: ${l}`);
+      }
+      
+      // Enforce conversation limit: last 15 messages, capped at 3000 chars
+      conversationContext = messages.join('\n').slice(0, 3000);
+      
     } else if (mode === 'Jobs') {
       const jobDesc = document.querySelector('.job-description') || document.querySelector('[class*="description"]') || document.body;
-      scrapedText = `Job Posting: ${document.title}\nDescription details:\n${jobDesc.innerText.slice(0, 4000)}`;
+      pageContext = `Job Posting: ${document.title}\nDetails:\n${jobDesc.innerText.slice(0, 3500)}`;
+      conversationContext = "";
+      
     } else {
       // General/Research/News
       const title = document.querySelector('h1')?.innerText || document.title;
       const paragraphs = Array.from(document.querySelectorAll('p')).slice(0, 15).map(p => p.innerText).join('\n');
-      scrapedText = `Title: ${title}\nContent Paragraphs:\n${paragraphs}`;
+      pageContext = `Title: ${title}\nContent Excerpts:\n${paragraphs}`.slice(0, 4000);
+      conversationContext = "";
     }
 
-    return scrapedText.slice(0, 4500);
+    console.log(`Shelby Extracted Context: pageContext length = ${pageContext.length}, conversationContext length = ${conversationContext.length}`);
+    return { page_context: pageContext, conversation_context: conversationContext };
   }
 
   // 6. Listen for messages from background/panel
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
-      // Open panel and load image vision analysis
       togglePanel(true, false, msg.imageUrl);
     }
   });
@@ -289,18 +343,19 @@
       togglePanel(false);
     } else if (msg.type === 'SHELBY_REQUEST_SCRAPE') {
       const selectedText = window.getSelection().toString().trim();
-      const scrapedText = await scrapePageContent();
+      const { page_context, conversation_context } = await scrapePageContent();
+      
       iframe.contentWindow.postMessage({
         type: 'SHELBY_SEND_SCRAPED_DATA',
         payload: {
           url: window.location.href,
           title: document.title,
-          scrapedText,
+          page_context,
+          conversation_context: conversation_context || null,
           selectedText: selectedText || null
         }
       }, '*');
     } else if (msg.type === 'SHELBY_INSERT_REPLY') {
-      // Insert reply text at cursor
       insertTextAtCursor(msg.payload.text);
     } else if (msg.type === 'SHELBY_UPDATE_MASCOT_VISUAL') {
       if (window.ShelbyMascot) {

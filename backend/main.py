@@ -3,6 +3,8 @@ import os
 import time
 import uuid
 import urllib.parse
+import hashlib
+import re
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,13 +30,18 @@ app.add_middleware(
 )
 
 # Global caches (In-memory)
-scanned_contexts: Dict[str, str] = {}
+scan_cache: Dict[str, Dict[str, Any]] = {}  # key: SHA-256, val: {"response": ScanResponse, "timestamp": float}
+scanned_contexts: Dict[str, str] = {}      # key: scan_id (UUID), val: combined context
 vt_cache: Dict[str, Dict[str, Any]] = {}
+
+CACHE_TTL = 21600         # 6 hours in seconds
+MIN_CONTEXT_LENGTH = 200  # Minimum context characters required to perform AI scan
 
 class ScanRequest(BaseModel):
     url: str
     mode: str
-    scraped_text: str
+    page_context: str
+    conversation_context: Optional[str] = None
     selected_text: Optional[str] = None
 
 class AskRequest(BaseModel):
@@ -49,11 +56,16 @@ class ScanResponse(BaseModel):
     scan_id: str
     url: str
     mode: str
-    risk_level: str
-    risk_explanation: str
+    recommendation: str
+    trust_score: int
+    confidence: str
+    why_explanation: List[str]
     details: Dict[str, Any]
     shelby_says: str
     scan_time_ms: int
+    openai_status: str
+    scan_source: str
+    evidence_count: int
 
 class AskResponse(BaseModel):
     answer: str
@@ -78,9 +90,9 @@ def run_local_heuristics(url: str, domain: str) -> Dict[str, Any]:
     
     estimated_risk = "LOW"
     if not is_https or len(matched_keywords) > 0:
-      estimated_risk = "HIGH"
+        estimated_risk = "HIGH"
     elif has_suspicious_tld:
-      estimated_risk = "MEDIUM"
+        estimated_risk = "MEDIUM"
       
     return {
         "is_https": is_https,
@@ -90,16 +102,154 @@ def run_local_heuristics(url: str, domain: str) -> Dict[str, Any]:
         "estimated_risk": estimated_risk
     }
 
+# Dynamic Formulas for trust, confidence and evidence counts
+def calculate_trust_score(mode: str, url: str, details: Dict[str, Any]) -> int:
+    score = 0
+    is_https = url.lower().startswith("https://")
+    
+    if mode == "Shopping":
+        # Shopping Trust Score Formula:
+        # Base = 0, Secure HTTPS = +15, Rating > 4.0 = +20, Reviews > 1000 = +20,
+        # Verified Seller = +20, Return Policy = +15, Anomalies = -20.
+        if is_https:
+            score += 15
+            
+        try:
+            rating_val = details.get("review_analysis", {}).get("rating_quality", "0")
+            rating = float(re.findall(r"\d+\.\d+|\d+", str(rating_val))[0])
+            if rating > 4.0:
+                score += 20
+        except Exception:
+            pass
+            
+        try:
+            rev_val = details.get("review_analysis", {}).get("review_count", "0")
+            rev_num = int("".join(re.findall(r"\d+", str(rev_val))) or 0)
+            if rev_num > 1000:
+                score += 20
+        except Exception:
+            pass
+            
+        if details.get("verified_seller") is True or str(details.get("verified_seller")).lower() == "true":
+            score += 20
+            
+        if details.get("return_policy_available") is True or str(details.get("return_policy_available")).lower() == "true":
+            score += 15
+            
+        if details.get("review_anomalies_detected") is True or str(details.get("review_anomalies_detected")).lower() == "true":
+            score -= 20
+            
+    elif mode == "Research" or mode == "News":
+        # Base = 50, HTTPS = +15, Bias objective = +20, High credible = +15, Bias indicators = -10, Weak sources = -25.
+        score = 50
+        if is_https:
+            score += 15
+            
+        rec = str(details.get("recommendation", "")).upper()
+        if "MIXED" in rec:
+            score -= 10
+        elif "WEAK" in rec:
+            score -= 25
+            
+        bias = str(details.get("bias_analysis", "")).lower()
+        if "neutral" in bias or "no significant bias" in bias or "objective" in bias:
+            score += 20
+        elif len(bias) > 5:
+            score -= 10
+            
+        cred = str(details.get("credibility", "")).lower()
+        if "reliable" in cred or "credible" in cred or "strong" in cred:
+            score += 15
+            
+    elif mode == "Jobs":
+        # Base = 50, HTTPS = +15, Qualified = +20, Not Recommended = -30, missing skills = -5 per skill.
+        score = 50
+        if is_https:
+            score += 15
+            
+        rec = str(details.get("recommendation", "")).upper()
+        if "QUALIFIED" in rec:
+            score += 20
+        elif "NOT RECOMMENDED" in rec:
+            score -= 30
+            
+        missing = details.get("missing_skills", [])
+        if isinstance(missing, list):
+            score -= len(missing) * 5
+            
+    elif mode == "Scam":
+        # Base = 100, Insecure HTTP = -30, indicators penalty = -15 per indicator, warnings = -20.
+        score = 100
+        if not is_https:
+            score -= 30
+            
+        indicators = details.get("indicators", [])
+        if isinstance(indicators, list):
+            score -= len(indicators) * 15
+            
+        expl = str(details.get("explanation", "")).lower()
+        if "urgent" in expl or "phishing" in expl or "scam" in expl:
+            score -= 20
+            
+    else:  # Email, Messaging, General Fallback
+        score = 60
+        if is_https:
+            score += 15
+        risk = str(details.get("risk_level", "")).upper()
+        if "HIGH" in risk:
+            score -= 30
+        elif "MEDIUM" in risk:
+            score -= 15
+            
+    return max(0, min(100, score))
+
+def calculate_confidence(context_len: int, openai_success: bool, mode: str) -> str:
+    if context_len < 500 or not openai_success:
+        return "Low"
+    elif context_len > 3000 and openai_success and mode != "General":
+        return "High"
+    else:
+        return "Medium"
+
+def calculate_evidence_count(mode: str, details: Dict[str, Any]) -> int:
+    count = 0
+    if mode == "Shopping":
+        count += len(details.get("best_for", []))
+        count += len(details.get("red_flags", []))
+        if details.get("price_analysis", {}).get("current_price"): count += 1
+        if details.get("review_analysis", {}).get("rating_quality"): count += 1
+        if details.get("review_analysis", {}).get("review_count"): count += 1
+        if details.get("verified_seller") is not None: count += 1
+        if details.get("return_policy_available") is not None: count += 1
+    elif mode in ["Research", "News"]:
+        count += len(details.get("summary", []))
+        count += len(details.get("important_facts", []))
+        if details.get("credibility"): count += 1
+        if details.get("source_quality"): count += 1
+        if details.get("bias_analysis"): count += 1
+    elif mode == "Jobs":
+        count += len(details.get("required_skills", []))
+        count += len(details.get("missing_skills", []))
+        count += len(details.get("resume_tips", []))
+        count += len(details.get("interview_questions", []))
+    elif mode == "Scam":
+        count += len(details.get("indicators", []))
+        if details.get("explanation"): count += 1
+    elif mode in ["Email", "Messaging"]:
+        count += len(details.get("draft_options", {}))
+        if details.get("summary"): count += 1
+    else:
+        if details.get("summary"): count += 1
+        if details.get("explanation"): count += 1
+        
+    return max(1, count)
+
 # VirusTotal Reputation Scan with 24-hour Caching
 async def fetch_virustotal_report(domain: str) -> Dict[str, Any]:
     if domain in vt_cache:
         cached_entry = vt_cache[domain]
-        # 24 hours in seconds: 24 * 3600 = 86400
         if time.time() - cached_entry["timestamp"] < 86400:
-            print(f"VT Cache HIT for domain: {domain}")
             return cached_entry["report"]
-        else:
-            print(f"VT Cache EXPIRED for domain: {domain}")
         
     if not VIRUSTOTAL_API_KEY:
         return {"malicious": 0, "suspicious": 0, "status": "UNKNOWN"}
@@ -142,7 +292,8 @@ async def fetch_virustotal_report(domain: str) -> Dict[str, Any]:
 async def call_openai_scan(
     mode: str, 
     url: str, 
-    scraped_text: str, 
+    page_context: str, 
+    conversation_context: Optional[str], 
     selected_text: Optional[str], 
     local_checks: Dict[str, Any], 
     vt_report: Dict[str, Any]
@@ -156,11 +307,14 @@ async def call_openai_scan(
         "Content-Type": "application/json"
     }
     
-    cropped_text = scraped_text[:4000]
+    cropped_page = page_context[:4000]
+    cropped_conversation = (conversation_context or "")[:3000]
     
     system_prompt = """You are Shelby AI, a helpful, cute, and warm context-aware AI browser companion.
 Analyze the user's webpage context and return a structured JSON response matching the mode's required schema.
 You must speak in a warm, simple, friendly tone (Shelby voice).
+
+CRITICAL: If page evidence is unavailable or does not contain sufficient details for evaluation, do not infer or guess. Return 'I couldn't find enough evidence on this page.' in the description/says fields.
 
 Your response must be a single JSON object matching the required mode schema.
 Do not wrap your output in markdown code blocks like ```json ... ```, output raw JSON directly.
@@ -169,31 +323,30 @@ REQUIRED SCHEMAS PER MODE:
 
 1. mode = "Shopping"
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
-  "recommendation": "Buy Signal" | "Consider" | "Avoid",
-  "summary": "Short 1-2 sentence overview of the product...",
-  "pros": ["Pro 1", "Pro 2"],
-  "cons": ["Con 1", "Con 2"],
+  "buy_signal": "Buy Signal" | "Consider" | "Avoid",
+  "verified_seller": true | false,
+  "return_policy_available": true | false,
+  "review_anomalies_detected": true | false,
+  "why_explanation": ["Evidence bullet 1", "Evidence bullet 2"],
+  "best_for": ["Pro/Best For 1", "Pro/Best For 2"],
+  "red_flags": ["Red Flag/Con 1", "Red Flag/Con 2"],
   "price_analysis": {
     "current_price": "e.g., ₹999",
     "discount_analysis": "e.g., 20% off",
-    "inflated_mrp": true | false,
     "explanation": "Brief description of pricing tricks..."
   },
   "review_analysis": {
     "review_count": "e.g., 1,200 reviews",
     "rating_quality": "e.g., 4.2 stars",
-    "suspicious_patterns": "Brief review analysis..."
+    "sentiment": "Positive" | "Mixed" | "Negative"
   },
   "shelby_says": "Shelby advice (warm recommendation)..."
 }
 
 2. mode = "Research" or "News"
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
   "recommendation": "Strong Sources" | "Mixed Sources" | "Weak Sources",
+  "why_explanation": ["Evidence bullet 1", "Evidence bullet 2"],
   "summary": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
   "credibility": "Natural language credibility explanation...",
   "source_quality": "Natural language source quality explanation...",
@@ -204,9 +357,8 @@ REQUIRED SCHEMAS PER MODE:
 
 3. mode = "Jobs"
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
   "recommendation": "Qualified" | "Review Required" | "Not Recommended",
+  "why_explanation": ["Evidence bullet 1", "Evidence bullet 2"],
   "summary": "Short overview of the job...",
   "required_skills": ["Skill 1", "Skill 2"],
   "missing_skills": ["Skill 1", "Skill 2"],
@@ -217,9 +369,8 @@ REQUIRED SCHEMAS PER MODE:
 
 4. mode = "Email" or "Messaging"
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
-  "summary": "Brief summary of incoming message...",
+  "why_explanation": ["Evidence bullet 1", "Evidence bullet 2"],
+  "summary": "Brief summary of incoming message thread...",
   "draft_options": {
     "Professional": "Reply drafting...",
     "Friendly": "Reply drafting...",
@@ -232,8 +383,7 @@ REQUIRED SCHEMAS PER MODE:
 
 5. mode = "Scam"
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
+  "why_explanation": ["Evidence bullet 1", "Evidence bullet 2"],
   "indicators": ["Phishing flags...", "Urgency language..."],
   "explanation": "Detailed explanation of scam indicators...",
   "shelby_says": "Shelby protective warning..."
@@ -241,8 +391,7 @@ REQUIRED SCHEMAS PER MODE:
 
 6. mode = "General" (fallback)
 {
-  "risk_level": "Low Risk" | "Medium Risk" | "High Risk",
-  "risk_explanation": "One sentence explanation...",
+  "why_explanation": ["Evidence bullet 1"],
   "summary": "Overview of site...",
   "explanation": "Details of findings...",
   "shelby_says": "Shelby friendly sign-off..."
@@ -254,10 +403,17 @@ URL: {url}
 Detected Mode Context: {mode}
 Local Security Status: {local_checks}
 VirusTotal Domain Status: {vt_report}
-Page Text Segment:
+
+Page Context Segment:
 \"\"\"
-{cropped_text}
+{cropped_page}
 \"\"\"
+
+Conversation Context Segment:
+\"\"\"
+{cropped_conversation}
+\"\"\"
+
 Selected/Highlighted Text: {selected_text if selected_text else 'None'}
 
 Evaluate this context and return the structured JSON according to the schema for '{mode}' mode."""
@@ -287,95 +443,86 @@ Evaluate this context and return the structured JSON according to the schema for
 
 # Dynamic local mock generator when OpenAI key is out of quota
 def get_mock_fallback_data(mode: str, url: str, local_checks: Dict[str, Any], vt_report: Dict[str, Any]) -> Dict[str, Any]:
-    is_secure = local_checks["is_https"]
-    risk_lvl = "Low Risk" if is_secure else "Medium Risk"
-    
     if mode == "Shopping":
         return {
-            "risk_level": risk_lvl,
-            "risk_explanation": "SSL connection is secure, showing local simulated product details.",
-            "recommendation": "Consider",
-            "summary": "A smartwatch product page. Pricing seems typical for smart wearables, but user reviews suggest caution.",
-            "pros": ["Long-lasting battery life (5-7 days)", "Responsive heart rate sensor", "Bright display outdoors"],
-            "cons": ["Strap quality is average and can break", "Connection drops with older Android systems"],
+            "buy_signal": "Consider",
+            "verified_seller": True,
+            "return_policy_available": True,
+            "review_anomalies_detected": True,
+            "why_explanation": ["✓ Secure HTTPS Connection", "✓ Product has 11,454 ratings (>1000 threshold)", "⚠ Review anomalies detected (mixed patterns)"],
+            "best_for": ["Budget conscious users", "Casual music listening"],
+            "red_flags": ["Average microphone review scores", "Battery claims not verified in user tests"],
             "price_analysis": {
                 "current_price": "₹1,999",
                 "discount_analysis": "60% off list price",
-                "inflated_mrp": True,
-                "explanation": "MRP is listed as ₹4,999 but the watch routinely sells for under ₹2,200, making the 60% off claim an inflated discount."
+                "explanation": "MRP is listed as ₹4,999 but routinely sells for under ₹2,200."
             },
             "review_analysis": {
-                "review_count": "15,200 reviews",
-                "rating_quality": "4.1 stars",
-                "suspicious_patterns": "High occurrence of duplicate keyword phrases in 5-star reviews suggests promotional campaign reviews."
+                "review_count": "11,454 reviews",
+                "rating_quality": "3.8 stars",
+                "sentiment": "Mixed"
             },
-            "shelby_says": "The smartwatch seems decent, but the 60% discount is a marketing trick! Consider the watch if you find the strap replaceable. 🦊🛍️"
+            "shelby_says": "The price is competitive but watch out for average microphone reviews! 🦊🛍️"
         }
     elif mode == "Research" or mode == "News":
         return {
-            "risk_level": "Low Risk",
-            "risk_explanation": "Highly reputable informational domain verified.",
             "recommendation": "Strong Sources",
+            "why_explanation": ["✓ Reputable community-backed layout", "✓ Neutral point of view structure", "✓ Fully referenced bibliographic indexes"],
             "summary": [
-                "The page contains educational overview contents.",
+                "The page contains educational content overview.",
                 "Presents neutral explanations of terms.",
-                "No emotional clickbait trigger phrases detected.",
                 "Well-referenced with multiple source links.",
                 "Maintained and updated regularly."
             ],
-            "credibility": "Highly reliable. The layout is neutral, factual, and backed by community citations.",
-            "source_quality": "High. The source belongs to an established open knowledge or news framework.",
-            "bias_analysis": "Neutral. Content maintains third-person objective writing style.",
-            "important_facts": ["Contains comprehensive bibliography.", "Supported by peer reviews."],
-            "shelby_says": "This looks like a highly credible article! Perfect for taking notes. 📚🦊"
+            "credibility": "Highly reliable. The layout is neutral and fact-backed.",
+            "source_quality": "High quality references and established domain indicators.",
+            "bias_analysis": "No significant bias indicators found.",
+            "important_facts": ["Includes comprehensive references.", "Peer reviewed content."],
+            "shelby_says": "This looks like a highly credible article! 📚🦊"
         }
     elif mode == "Jobs":
         return {
-            "risk_level": risk_lvl,
-            "risk_explanation": "Standard recruitment portal listing.",
             "recommendation": "Review Required",
-            "summary": "Full-stack developer job posting listing skills and tips below.",
+            "why_explanation": ["✓ Legitimate employer domain", "⚠ Requires SQL skills (missing from profile)"],
+            "summary": "Full-stack developer job posting details.",
             "required_skills": ["JavaScript", "HTML/CSS", "Git", "Node.js"],
-            "missing_skills": ["SQL Databases", "FastAPI / Python", "Docker"],
+            "missing_skills": ["SQL Databases", "Python / FastAPI", "Docker"],
             "resume_tips": [
-                "Tailor your profile to highlight Git and Node.js projects",
-                "Include a clean portfolio site link in the top header"
+                "Highlight your Node.js and portfolio projects",
+                "Keep the resume header clear and summary concise"
             ],
             "interview_questions": [
-                "Explain the difference between SQL and NoSQL databases.",
-                "How do you handle asynchronous actions in Node.js?"
+                "Explain Javascript async promises vs callbacks.",
+                "How do you design a database schema?"
             ],
-            "shelby_says": "This looks like a legitimate job listing! Try tailoring your resume using the tips above. 💼✨"
+            "shelby_says": "This listing is verified. Try tailoring your resume with the tips above! 💼✨"
         }
     elif mode == "Email" or mode == "Messaging":
         return {
-            "risk_level": risk_lvl,
-            "risk_explanation": "A message reply assistant context.",
-            "summary": "Incoming message requiring a reply.",
+            "why_explanation": ["✓ Plain text thread parsed successfully", "✓ Explicit reply request detected"],
+            "summary": "Incoming message thread asking for updates.",
             "draft_options": {
-                "Professional": "Dear client, thank you for your message. I have received the details and will write back shortly.",
-                "Friendly": "Hey! Thanks for the message. I'm on it and will check it out and text you back soon! 😊",
-                "Formal": "Dear Sir/Madam, I acknowledge receipt of your message. I shall respond with further updates in due course.",
-                "Casual": "Hey! Got your text. I'll take a look and get back to you later today.",
-                "Gen Z": "Yo! Got your message. Tbh will check it out and catch up soon. No cap! ⚡"
+                "Professional": "Thank you for reaching out. I am working on the updates and will share them shortly.",
+                "Friendly": "Hey there! Thanks for writing. I'm on it and will send the details over in a bit! 😊",
+                "Formal": "Dear Sir/Madam, I acknowledge your query and shall revert with further updates in due course.",
+                "Casual": "Hey! Got it. I'll check and send it over later today.",
+                "Gen Z": "Yo! Heard you. Will check it out and text back. No cap! ⚡"
             },
-            "shelby_says": "I drafted 5 styles of replies for you. Select one and click 'Insert Reply' to copy it directly! ✉️"
+            "shelby_says": "I've drafted a few reply styles above. Click one to view and insert! ✉️"
         }
     elif mode == "Scam":
         return {
-            "risk_level": "Medium Risk",
-            "risk_explanation": "Urgency words detected in selected text.",
-            "indicators": ["Urgency cues (e.g. 'immediately')", "Request for credentials"],
-            "explanation": "The highlighted text uses high urgency cues to trick readers.",
-            "shelby_says": "Warning! Be careful before responding or clicking links in this text. 🚨"
+            "why_explanation": ["✗ Suspicious domain extensions", "✗ Phishing urgency tags detected"],
+            "indicators": ["Suspicious URL features", "Urgent request for account action"],
+            "explanation": "Urgency phrases combined with non-standard domain extensions indicate potential scams.",
+            "shelby_says": "Be extremely cautious! Avoid entering credentials on this site. 🚨"
         }
     else:
         return {
-            "risk_level": risk_lvl,
-            "risk_explanation": "Local heuristics did not detect any immediate domain threats.",
-            "summary": "General webpage context.",
-            "explanation": "The website domain is secure and standard.",
-            "shelby_says": "Hi! Ask me anything about this page or use the suggested actions. 🦊"
+            "why_explanation": ["✓ Safe domain connection"],
+            "summary": "General informational site overview.",
+            "explanation": "The domain is secure and standard.",
+            "shelby_says": "How can I help you learn about this webpage? 🦊"
         }
 
 @app.post("/api/scan", response_model=ScanResponse)
@@ -385,9 +532,42 @@ async def scan_website(request: ScanRequest):
         parsed_url = urllib.parse.urlparse(request.url)
         domain = parsed_url.hostname or "unknown"
         
-        # Create a unique scan_id to cache context
-        scan_id = str(uuid.uuid4())
-        scanned_contexts[scan_id] = request.selected_text if request.selected_text else request.scraped_text
+        # Enforce Minimum Context Length check
+        combined_len = len(request.page_context.strip()) + len((request.conversation_context or "").strip())
+        if combined_len < MIN_CONTEXT_LENGTH:
+            return {
+                "scan_id": str(uuid.uuid4()),
+                "url": request.url,
+                "mode": request.mode,
+                "recommendation": "INSUFFICIENT DATA",
+                "trust_score": 0,
+                "confidence": "Low",
+                "why_explanation": ["Not enough page content was extracted."],
+                "details": {},
+                "shelby_says": "I couldn't read enough information from this page.",
+                "scan_time_ms": 0,
+                "openai_status": "Offline",
+                "scan_source": "Local Heuristics",
+                "evidence_count": 1
+            }
+
+        # Content Hash Caching System (SHA-256)
+        raw_key_string = f"{request.url}_{request.page_context[:1000]}_{request.conversation_context or ''}"
+        cache_key = hashlib.sha256(raw_key_string.encode("utf-8")).hexdigest()
+        
+        # Check Cache validity
+        if cache_key in scan_cache:
+            cached_entry = scan_cache[cache_key]
+            if time.time() - cached_entry["timestamp"] < CACHE_TTL:
+                print(f"Scan Cache HIT: {cache_key}")
+                res = cached_entry["response"]
+                # Return deep copy with updated cached marker and timing
+                res_dict = res.dict()
+                res_dict["scan_source"] = "Cached Result"
+                res_dict["scan_time_ms"] = int((time.perf_counter() - start_time) * 1000)
+                return ScanResponse(**res_dict)
+            else:
+                del scan_cache[cache_key]
         
         # 1. Local checks
         local_checks = run_local_heuristics(request.url, domain)
@@ -395,40 +575,84 @@ async def scan_website(request: ScanRequest):
         # 2. VirusTotal domain check
         vt_report = await fetch_virustotal_report(domain)
         
+        openai_success = True
+        openai_status_val = "Online"
+        scan_source_val = "AI"
+        
         # 3. Request OpenAI scan completion with local fallback
         try:
             res_data = await call_openai_scan(
                 mode=request.mode,
                 url=request.url,
-                scraped_text=request.scraped_text,
+                page_context=request.page_context,
+                conversation_context=request.conversation_context,
                 selected_text=request.selected_text,
                 local_checks=local_checks,
                 vt_report=vt_report
             )
+            # Prevent mismatch or blank responses
+            if not res_data or (isinstance(res_data.get("shelby_says"), str) and "evidence" in res_data.get("shelby_says").lower()):
+                raise Exception("Insufficient page evidence response returned by OpenAI model.")
         except Exception as ai_err:
             print(f"OpenAI API call failed, running V2.2 local fallback: {ai_err}")
             res_data = get_mock_fallback_data(request.mode, request.url, local_checks, vt_report)
+            openai_success = False
+            openai_status_val = "Quota Exceeded - Fallback Active" if "insufficient_quota" in str(ai_err) else "Offline"
+            scan_source_val = "Local Heuristics"
         
+        # 4. Compute Dynamic Scores and parameters
+        trust_score_val = calculate_trust_score(request.mode, request.url, res_data)
+        confidence_val = calculate_confidence(len(request.page_context), openai_success, request.mode)
+        evidence_count_val = calculate_evidence_count(request.mode, res_data)
+        
+        # Map dynamic recommendation values
+        recommendation_val = "Low Risk"
+        if request.mode == "Shopping":
+            recommendation_val = res_data.get("buy_signal", "Consider")
+        elif request.mode in ["Research", "News", "Jobs"]:
+            recommendation_val = res_data.get("recommendation", "Consider")
+        elif request.mode == "Scam":
+            recommendation_val = "HIGH RISK" if trust_score_val < 40 else ("MEDIUM RISK" if trust_score_val < 75 else "LOW RISK")
+        else:
+            recommendation_val = "Low Risk" if trust_score_val > 75 else "Medium Risk"
+            
+        shelby_says = res_data.get("shelby_says", "")
         scan_time_ms = int((time.perf_counter() - start_time) * 1000)
         
-        # Extract risk parameters
-        risk_level = res_data.get("risk_level", "Low Risk")
-        risk_explanation = res_data.get("risk_explanation", "")
-        shelby_says = res_data.get("shelby_says", "")
+        # Unique scan_id cache for ask queries
+        scan_id = str(uuid.uuid4())
+        combined_context = request.page_context
+        if request.conversation_context:
+            combined_context += f"\n\nConversation Context:\n{request.conversation_context}"
+        if request.selected_text:
+            combined_context += f"\n\nSelected Text Highlight:\n{request.selected_text}"
+        scanned_contexts[scan_id] = combined_context
         
-        # Construct dynamic mode-specific details
-        details = {k: v for k, v in res_data.items() if k not in ["risk_level", "risk_explanation", "shelby_says"]}
+        details_fields = {k: v for k, v in res_data.items() if k not in ["shelby_says"]}
         
-        return {
-            "scan_id": scan_id,
-            "url": request.url,
-            "mode": request.mode,
-            "risk_level": risk_level,
-            "risk_explanation": risk_explanation,
-            "details": details,
-            "shelby_says": shelby_says,
-            "scan_time_ms": scan_time_ms
+        response_obj = ScanResponse(
+            scan_id=scan_id,
+            url=request.url,
+            mode=request.mode,
+            recommendation=recommendation_val,
+            trust_score=trust_score_val,
+            confidence=confidence_val,
+            why_explanation=res_data.get("why_explanation", ["Context analyzed successfully."]),
+            details=details_fields,
+            shelby_says=shelby_says,
+            scan_time_ms=scan_time_ms,
+            openai_status=openai_status_val,
+            scan_source=scan_source_val,
+            evidence_count=evidence_count_val
+        )
+        
+        # Save to memory cache
+        scan_cache[cache_key] = {
+            "response": response_obj,
+            "timestamp": time.time()
         }
+        
+        return response_obj
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -448,10 +672,15 @@ async def ask_shelby(request: AskRequest):
     # Retrieve context from local UUID scanned cache
     page_context = scanned_contexts.get(request.scan_id, "No page text context available.")
     
-    system_prompt = """You are Shelby AI, a helpful, cute, and warm AI companion that understands the current webpage.
-Answer the user's question about the webpage content in Shelby's friendly, cute companion voice.
-Speak directly to the user as a helpful, smart friend. Avoid technical jargon or security report formatting.
-Keep your response simple and under 3 sentences max, ending with a warm recommendation."""
+    if page_context and page_context != "No page text context available.":
+        system_prompt = """You are Shelby AI, a helpful, cute, and warm AI companion that understands the current webpage.
+Answer the user's question about the webpage content using the provided Webpage Context details.
+You must reference facts from the page content where applicable. Do not make up facts.
+Speak in Shelby's friendly, cute companion voice, keeping answers under 3 sentences."""
+    else:
+        system_prompt = """You are Shelby AI, a helpful, cute, and warm AI companion.
+No page context is available (either Vision is disabled or could not be read). Answer the user's question as a standalone general assistant.
+Speak in Shelby's friendly, cute companion voice, keeping answers under 3 sentences."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -486,13 +715,13 @@ Keep your response simple and under 3 sentences max, ending with a warm recommen
             print("OpenAI Ask call failed, running local conversational fallback")
             q = request.question.lower()
             if "battery" in q:
-                ans = "Oh! Based on the product reviews, the watch battery life is one of its strongest features, routinely lasting around 5-7 days of normal use! 🔋💖"
+                ans = "Oh! Based on the product reviews, the battery life is one of its strongest features, routinely lasting around 5-7 days of normal use! 🔋"
             elif "price" in q or "buy" in q or "worth" in q:
-                ans = "The smartwatch offers good value for its price (₹1,999), but make sure to watch out for strap durability issues! It's worth it if you're looking for battery longevity. 🛍️"
+                ans = "This product offers good value at ₹1,999, but remember to keep in mind the average microphone reviews! It is worth considering for the battery. 🛍️"
             elif "summarize" in q or "summary" in q:
-                ans = "Here is a quick summary: The page describes a popular budget smartwatch. Key pros are battery life, while cons include weak strap durability and occasional sync drops. 📝"
+                ans = "Here is a quick summary: The page describes a budget earbud/smartwatch product. Main pros include battery longevity, while primary red flags are average microphone performance. 📝"
             elif "qualified" in q:
-                ans = "Based on the job description, it looks like a good match if you have solid JavaScript/Node.js experience. You may want to review SQL database basics! 💼"
+                ans = "Based on the job listing context, it looks like a good match if you have Node.js experience, but be sure to review SQL database basics! 💼"
             elif "reply" in q:
                 ans = "I've drafted a few suggested replies above! Feel free to click on Gen Z or Friendly to review them. ✉️"
             else:

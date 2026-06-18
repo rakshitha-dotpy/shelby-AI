@@ -622,3 +622,158 @@ body {
 .shelby-hidden {
   display: none !important;
 }
+
+/* V2.2 Refactored Layouts */
+.shelby-recommendation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.shelby-rec-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--theme-text);
+}
+
+.shelby-scores-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.shelby-score-card {
+  background: var(--theme-card-bg);
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  padding: 8px;
+  text-align: center;
+}
+.shelby-score-label {
+  display: block;
+  font-size: 10px;
+  color: var(--theme-text-sec);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+.shelby-score-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--theme-accent);
+}
+.shelby-score-value.font-medium {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Why Evidence Section */
+.shelby-why-section {
+  background: rgba(108, 99, 255, 0.04);
+  border: 1px dashed var(--theme-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.shelby-why-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--theme-accent);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.shelby-why-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.shelby-why-item {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 3px;
+  color: var(--theme-text);
+  font-weight: 500;
+}
+
+/* Developer Diagnostics Panel */
+.shelby-debug-section {
+  border: 1px solid rgba(255, 71, 87, 0.25) !important;
+  background: rgba(15, 23, 42, 0.02) !important;
+}
+.shelby-debug-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.shelby-debug-item {
+  font-family: monospace;
+  color: var(--theme-text);
+}
+.shelby-debug-item strong {
+  color: var(--theme-text-sec);
+}
+.shelby-debug-item span {
+  font-weight: bold;
+}
+.dbg-status-label.success {
+  color: var(--success);
+}
+.dbg-status-label.danger {
+  color: var(--danger);
+}
+
+.shelby-debug-preview-container {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--theme-border);
+  font-size: 10px;
+}
+.shelby-debug-preview-container strong {
+  font-family: monospace;
+  color: var(--theme-text-sec);
+}
+.shelby-debug-preview {
+  margin-top: 4px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--theme-border);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 9px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+  color: var(--theme-text);
+}
+
+/* Standalone Warning Box */
+.shelby-vision-warning-box {
+  background-color: rgba(116, 125, 140, 0.08);
+  border: 1px solid var(--theme-border);
+  border-left: 4px solid var(--theme-text-sec);
+  padding: 10px;
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  animation: shelby-slide-down 0.3s ease-out;
+}
+.shelby-warning-icon {
+  font-size: 15px;
+}
+.shelby-warning-content {
+  font-size: 11px;
+  color: var(--theme-text);
+}
+.shelby-warning-content strong {
+  color: var(--theme-text);
+  font-weight: 700;
+}
+.shelby-warning-content p {
+  color: var(--theme-text-sec);
+  margin-top: 2px;
+}

@@ -37,6 +37,15 @@
     <!-- Scrollable Main Panel Content -->
     <main class="shelby-main-content">
       
+      <!-- Privacy Standalone Warning Badge (shown when Vision is OFF) -->
+      <div id="shelby-vision-off-warning" class="shelby-vision-warning-box shelby-hidden">
+        <span class="shelby-warning-icon">🔒</span>
+        <div class="shelby-warning-content">
+          <strong>Vision is OFF</strong>
+          <p>Shelby cannot read the webpage content. Chatting in General general assistant mode.</p>
+        </div>
+      </div>
+
       <!-- Memory Comparison Alert Card -->
       <div id="shelby-memory-box" class="shelby-memory-box shelby-hidden">
         <span class="shelby-memory-icon">🧠</span>
@@ -81,18 +90,36 @@
       <!-- Dynamic Context Audit Findings -->
       <section id="shelby-context-section" class="shelby-context-section card shelby-hidden">
         
-        <!-- Mode Verdict Header -->
-        <div class="shelby-context-verdict-header">
-          <div class="shelby-verdict-left">
-            <span class="shelby-verdict-desc" id="shelby-verdict-desc-id">Risk Level:</span>
-            <span id="shelby-context-verdict" class="shelby-verdict-badge">Analyzing...</span>
-          </div>
+        <!-- Recommendation Metric Row -->
+        <div class="shelby-recommendation-row">
+          <span class="shelby-rec-label">Recommendation:</span>
+          <span id="shelby-context-verdict" class="shelby-verdict-badge">Analyzing...</span>
           <span id="shelby-scan-time" class="shelby-scan-time">0.0s</span>
+        </div>
+
+        <!-- Calculated Scores Grid -->
+        <div class="shelby-scores-grid">
+          <div class="shelby-score-card">
+            <span class="shelby-score-label">Trust Score</span>
+            <div id="shelby-context-trust-score" class="shelby-score-value">--</div>
+          </div>
+          <div class="shelby-score-card">
+            <span class="shelby-score-label">Confidence</span>
+            <div id="shelby-context-confidence" class="shelby-score-value font-medium">--</div>
+          </div>
         </div>
 
         <!-- AI Summary Block -->
         <div class="shelby-summary-block">
           <p id="shelby-context-summary" class="shelby-summary-text">Analyzing page context...</p>
+        </div>
+
+        <!-- Explainability Section -->
+        <div id="shelby-why-section-id" class="shelby-why-section">
+          <div class="shelby-why-title">Why?</div>
+          <ul id="shelby-why-list-id" class="shelby-why-list">
+            <!-- Populated with evidence bullets -->
+          </ul>
         </div>
 
         <!-- Dynamic Detailed Content Nodes -->
@@ -113,6 +140,28 @@
         <div class="shelby-chat-input-row">
           <input type="text" id="shelby-chat-input" placeholder="Ask Shelby... (e.g. summarize this page)" />
           <button id="shelby-chat-submit-btn" class="shelby-chat-submit-btn">Send</button>
+        </div>
+      </section>
+
+      <!-- Temporary Developer Diagnostics Panel (Debug Mode) -->
+      <section id="shelby-debug-section" class="shelby-debug-section card">
+        <h3 class="shelby-section-title">🛠️ Developer Diagnostics</h3>
+        <div class="shelby-debug-grid">
+          <div class="shelby-debug-item"><strong>Build:</strong> <span>V2.2</span></div>
+          <div class="shelby-debug-item"><strong>Scan Source:</strong> <span id="dbg-scan-source">--</span></div>
+          <div class="shelby-debug-item"><strong>Current Mode:</strong> <span id="dbg-mode">--</span></div>
+          <div class="shelby-debug-item"><strong>Ctx Quality:</strong> <span id="dbg-ctx-quality">--</span></div>
+          <div class="shelby-debug-item"><strong>Ctx Length:</strong> <span id="dbg-ctx-len">0</span> chars</div>
+          <div class="shelby-debug-item"><strong>Evidence:</strong> <span id="dbg-evidence-count">--</span></div>
+          <div class="shelby-debug-item"><strong>Last Request:</strong> <span id="dbg-last-request" class="dbg-status-label">--</span></div>
+          <div class="shelby-debug-item"><strong>Backend Status:</strong> <span id="dbg-backend">--</span></div>
+          <div class="shelby-debug-item"><strong>OpenAI Status:</strong> <span id="dbg-openai">--</span></div>
+          <div class="shelby-debug-item"><strong>Last Scan Speed:</strong> <span id="dbg-last-scan">--</span></div>
+        </div>
+        <!-- Raw Context Preview Box -->
+        <div class="shelby-debug-preview-container">
+          <strong>Context Preview (First 300 chars):</strong>
+          <pre id="dbg-ctx-preview" class="shelby-debug-preview">(No context preview available)</pre>
         </div>
       </section>
 

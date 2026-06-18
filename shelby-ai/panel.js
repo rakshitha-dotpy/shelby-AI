@@ -1,13 +1,18 @@
 // panel.js - Shelby AI Companion UI Management & Backend Integration
-// Implements V2.2 Command Palette, Dynamic Theming, and Memory upgrade comparisons.
+// Implements V2.2 Command Palette, Dynamic Theming, Calculated Trust Scores, and diagnostics.
 
 let currentUrl = "";
 let currentContext = "General"; // Shopping, Research, Jobs, Email, Messaging, News, General
 let currentScanId = "";
-let pageScrapedText = "";
+let pageContextText = "";
+let conversationContextText = "";
 let pageSelectedText = null;
 let currentDraftOptions = {};
 let chatHistory = [];
+let isVisionEnabled = true;
+
+// Client-side local cache (URL -> {data, clientTimestamp})
+const clientScanCache = {};
 
 // DOM Elements
 const featuresFound = document.getElementById('shelby-features-found-id');
@@ -16,6 +21,7 @@ const privacyText = document.getElementById('shelby-privacy-text-id');
 const closeBtn = document.getElementById('close-panel-btn');
 const scanningLine = document.getElementById('shelby-scanning-line');
 const scanTimeLabel = document.getElementById('shelby-scan-time');
+const visionOffWarning = document.getElementById('shelby-vision-off-warning');
 
 // Memory elements
 const memoryBox = document.getElementById('shelby-memory-box');
@@ -37,7 +43,11 @@ const imageIndicators = document.getElementById('shelby-image-indicators');
 // Context section
 const contextSection = document.getElementById('shelby-context-section');
 const contextVerdict = document.getElementById('shelby-context-verdict');
+const contextTrustScore = document.getElementById('shelby-context-trust-score');
+const contextConfidence = document.getElementById('shelby-context-confidence');
 const contextSummary = document.getElementById('shelby-context-summary');
+const whySection = document.getElementById('shelby-why-section-id');
+const whyList = document.getElementById('shelby-why-list-id');
 const modeDetails = document.getElementById('shelby-mode-details');
 
 // Chat section
@@ -45,20 +55,35 @@ const chatLog = document.getElementById('shelby-chat-log');
 const chatInput = document.getElementById('shelby-chat-input');
 const chatSubmitBtn = document.getElementById('shelby-chat-submit-btn');
 
+// Debug Panel Elements
+const dbgScanSource = document.getElementById('dbg-scan-source');
+const dbgMode = document.getElementById('dbg-mode');
+const dbgCtxQuality = document.getElementById('dbg-ctx-quality');
+const dbgCtxLen = document.getElementById('dbg-ctx-len');
+const dbgEvidenceCount = document.getElementById('dbg-evidence-count');
+const dbgLastRequest = document.getElementById('dbg-last-request');
+const dbgBackend = document.getElementById('dbg-backend');
+const dbgOpenai = document.getElementById('dbg-openai');
+const dbgLastScan = document.getElementById('dbg-last-scan');
+const dbgCtxPreview = document.getElementById('dbg-ctx-preview');
+
 // Initialize Privacy Toggle Status
 async function initPrivacyToggle() {
   const config = await chrome.storage.local.get('shelby_vision');
-  const visionOn = config.shelby_vision !== false;
-  updatePrivacyUI(visionOn);
+  isVisionEnabled = config.shelby_vision !== false;
+  updatePrivacyUI(isVisionEnabled);
 }
 
 function updatePrivacyUI(enabled) {
+  isVisionEnabled = enabled;
   if (enabled) {
     privacyToggleBtn.className = 'shelby-privacy-badge vision-on';
     privacyText.innerText = 'Vision ON';
+    visionOffWarning.classList.add('shelby-hidden');
   } else {
     privacyToggleBtn.className = 'shelby-privacy-badge vision-off';
     privacyText.innerText = 'Vision OFF';
+    visionOffWarning.classList.remove('shelby-hidden');
   }
 }
 
@@ -68,7 +93,7 @@ privacyToggleBtn.addEventListener('click', async () => {
   await chrome.storage.local.set({ 'shelby_vision': nextState });
   updatePrivacyUI(nextState);
   
-  // Re-trigger scan when vision settings are toggled
+  // Re-trigger scan sequence when privacy is toggled
   initializeScanSequence();
 });
 
@@ -109,8 +134,11 @@ window.addEventListener('message', async (event) => {
       initializeScanSequence();
     }
   } else if (msg.type === 'SHELBY_SEND_SCRAPED_DATA') {
-    pageScrapedText = msg.payload.scrapedText;
-    sendDataToBackend();
+    pageContextText = msg.payload.page_context || "";
+    conversationContextText = msg.payload.conversation_context || "";
+    
+    // Proceed with scan payload verification
+    verifyAndSendDataToBackend();
   }
 });
 
@@ -142,11 +170,40 @@ function initializeScanSequence() {
   contextSection.classList.remove('shelby-hidden');
   contextVerdict.innerText = 'Analyzing...';
   contextVerdict.className = 'shelby-verdict-badge';
+  contextTrustScore.innerText = '--';
+  contextConfidence.innerText = '--';
   contextSummary.innerText = 'Shelby is analyzing the page content...';
+  whyList.innerHTML = "";
   modeDetails.innerHTML = '';
 
   // Adaptive chat heights based on context
   adaptChatLayoutHeight();
+
+  // Reset debug fields
+  dbgMode.innerText = currentContext;
+  dbgCtxLen.innerText = "0";
+  dbgCtxQuality.innerText = "--";
+  dbgCtxPreview.innerText = "(No context preview available)";
+
+  // If vision is disabled, skip scraping and backend scans entirely (Standalone Chat Mode)
+  if (!isVisionEnabled) {
+    scanningLine.classList.remove('active');
+    contextSection.classList.add('shelby-hidden');
+    
+    // Set Standalone Diagnostics
+    dbgScanSource.innerText = "Standalone Mode";
+    dbgCtxLen.innerText = "0";
+    dbgCtxQuality.innerText = "--";
+    dbgEvidenceCount.innerText = "--";
+    updateRequestStatus('No Scrape / Halted', true);
+    dbgBackend.innerText = "Online";
+    dbgOpenai.innerText = "Online";
+    dbgLastScan.innerText = "0ms";
+    dbgCtxPreview.innerText = "Shelby Vision is OFF. Reading page context is disabled.";
+    
+    appendChatMessage('assistant', "I'm running in Standalone Mode because Vision is OFF. Ask me general questions! 🦊");
+    return;
+  }
 
   // Request scraped text
   window.parent.postMessage({ type: 'SHELBY_REQUEST_SCRAPE' }, '*');
@@ -157,26 +214,21 @@ function setFeaturesChecklistHeader() {
   const textEl = featuresFound;
   switch (currentContext) {
     case 'Shopping':
-      textEl.innerText = 'I found: 🛒 Product details, ⭐ Reviews, 💰 Pricing';
+      textEl.innerText = 'I found:\n🛒 Product\n⭐ Reviews\n💰 Pricing';
       break;
     case 'Research':
     case 'News':
-      textEl.innerText = 'I found: 📚 Article, 🔍 Sources, 📝 Summary';
+      textEl.innerText = 'I found:\n📚 Article\n🔍 Sources\n📝 Summary';
       break;
     case 'Jobs':
-      textEl.innerText = 'I found: 💼 Job posting, 🛠️ Required skills, 💬 Interview tips';
+      textEl.innerText = 'I found:\n💼 Job details\n🛠️ Requirements\n💬 Tips';
       break;
     case 'Email':
-      textEl.innerText = 'I found: ✉️ Email, 📝 Draft options';
-      break;
     case 'Messaging':
-      textEl.innerText = 'I found: 💬 Conversation, ⚡ Suggested replies';
-      break;
-    case 'Scam':
-      textEl.innerText = 'I found: 🚨 Suspicious highlights, 🔍 Scam indicators';
+      textEl.innerText = 'I found:\n✉️ Message details\n📝 Suggested replies';
       break;
     default:
-      textEl.innerText = 'I found: 🌐 Website context';
+      textEl.innerText = 'I found:\n🌐 Webpage details';
   }
 }
 
@@ -254,13 +306,69 @@ function populateSuggestedActions() {
   });
 }
 
+// Update local request status badge
+function updateRequestStatus(text, success) {
+  dbgLastRequest.innerText = text;
+  if (success) {
+    dbgLastRequest.className = 'dbg-status-label success';
+  } else {
+    dbgLastRequest.className = 'dbg-status-label danger';
+  }
+}
+
+// Scrape length validation and transmission
+function verifyAndSendDataToBackend() {
+  const combinedLen = pageContextText.length + conversationContextText.length;
+  
+  // 1. Diagnostics update
+  dbgCtxLen.innerText = combinedLen;
+  dbgCtxPreview.innerText = pageContextText ? pageContextText.slice(0, 300) : "(No context preview)";
+  
+  // Calculate Quality formula
+  let quality = "Poor";
+  if (combinedLen > 3000) quality = "Excellent";
+  else if (combinedLen > 1500) quality = "Good";
+  else if (combinedLen > 500) quality = "Fair";
+  dbgCtxQuality.innerText = quality;
+
+  // 2. Minimum context validation (200 characters limit)
+  if (combinedLen < 200) {
+    scanningLine.classList.remove('active');
+    contextVerdict.innerText = 'INSUFFICIENT DATA';
+    contextVerdict.className = 'shelby-verdict-badge danger';
+    contextTrustScore.innerText = '0';
+    contextConfidence.innerText = 'Low';
+    contextSummary.innerText = "I couldn't read enough information from this page.";
+    
+    whyList.innerHTML = "<li class='shelby-why-item'>✗ Not enough page content was extracted (under 200 chars).</li>";
+    updateRequestStatus('Context validation failed', false);
+    dbgScanSource.innerText = "Halted";
+    dbgEvidenceCount.innerText = "1";
+    
+    window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'danger' } }, '*');
+    return;
+  }
+
+  // 3. Client-side local cache validation (expires in 6 hours)
+  const cached = clientScanCache[currentUrl];
+  if (cached && (Date.now() - cached.clientTimestamp < 21600000)) {
+    console.log("Client local Cache HIT for: " + currentUrl);
+    renderScanResults(cached.data, "Cached Result (Client)");
+    return;
+  }
+
+  // 4. Send to FastAPI server
+  sendDataToBackend();
+}
+
 // POST page data to `/api/scan`
 async function sendDataToBackend() {
   const backendUrl = "http://127.0.0.1:8000/api/scan";
   const payload = {
     url: currentUrl,
     mode: currentContext,
-    scraped_text: pageScrapedText,
+    page_context: pageContextText,
+    conversation_context: conversationContextText || null,
     selected_text: pageSelectedText
   };
 
@@ -271,8 +379,18 @@ async function sendDataToBackend() {
       body: JSON.stringify(payload)
     });
 
-    if (!response.ok) throw new Error(`Status ${response.status}`);
+    if (!response.ok) {
+      updateRequestStatus(`/api/scan - ${response.status} Error`, false);
+      throw new Error(`Status ${response.status}`);
+    }
+    
     const data = await response.json();
+    updateRequestStatus('/api/scan - 200 OK', true);
+    
+    // Save to client cache
+    data.clientTimestamp = Date.now();
+    clientScanCache[currentUrl] = { data, clientTimestamp: Date.now() };
+
     renderScanResults(data);
   } catch (error) {
     console.error('Shelby scan API connection error:', error);
@@ -285,11 +403,14 @@ function showErrorState(msg) {
   contextVerdict.innerText = 'Offline';
   contextVerdict.className = 'shelby-verdict-badge danger';
   contextSummary.innerText = `Shelby couldn't connect to the backend server. Make sure it is running. (${msg})`;
+  dbgBackend.innerText = "Offline";
+  dbgOpenai.innerText = "Offline";
+  dbgScanSource.innerText = "Local Heuristics";
   window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'danger' } }, '*');
 }
 
 // Render dynamic results
-async function renderScanResults(data) {
+async function renderScanResults(data, customSource = null) {
   scanningLine.classList.remove('active');
   currentScanId = data.scan_id;
   
@@ -298,22 +419,50 @@ async function renderScanResults(data) {
   scanTimeLabel.innerText = `${durationSec}s`;
   scanTimeLabel.classList.remove('shelby-hidden');
 
-  // Render Verdict Badge
-  const risk = data.risk_level; // Low Risk, Medium Risk, High Risk
-  const rec = data.details.recommendation || risk;
+  // Render Verdict/Recommendation Badge
+  const rec = data.recommendation;
   contextVerdict.innerText = rec;
   
   // Format verdict class based on risk/recommendation
   let verdictClass = 'warning';
-  if (['buy signal', 'strong sources', 'qualified', 'low risk'].includes(rec.toLowerCase())) verdictClass = 'safe';
-  if (['avoid', 'weak sources', 'not recommended', 'high risk'].includes(rec.toLowerCase())) verdictClass = 'danger';
+  if (['buy signal', 'strong sources', 'qualified', 'low risk', 'buy'].includes(rec.toLowerCase())) verdictClass = 'safe';
+  if (['avoid', 'weak sources', 'not recommended', 'high risk', 'insufficient data'].includes(rec.toLowerCase())) verdictClass = 'danger';
   contextVerdict.className = `shelby-verdict-badge ${verdictClass}`;
 
   // Update Mascot visual states
   window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: verdictClass } }, '*');
 
+  // Calculated Score metrics
+  contextTrustScore.innerText = `${data.trust_score}%`;
+  contextConfidence.innerText = data.confidence;
+
   // Display Summary Text
-  contextSummary.innerText = data.risk_explanation || data.shelby_says || '';
+  contextSummary.innerText = data.shelby_says || '';
+
+  // Render "Why?" evidence points
+  whyList.innerHTML = "";
+  (data.why_explanation || []).forEach(point => {
+    const li = document.createElement('li');
+    li.className = 'shelby-why-item';
+    
+    // Choose bullet icon dynamically based on tone
+    let icon = '▪';
+    if (point.startsWith('✓') || point.startsWith('👍') || point.toLowerCase().includes('secure') || point.toLowerCase().includes('rating >')) {
+      icon = '✓';
+      li.style.color = '#218c53';
+    } else if (point.startsWith('⚠') || point.startsWith('👎') || point.toLowerCase().includes('anomaly') || point.toLowerCase().includes('average')) {
+      icon = '⚠';
+      li.style.color = '#c0392b';
+    } else if (point.startsWith('✗')) {
+      icon = '✗';
+      li.style.color = '#c0392b';
+    }
+    
+    // Strip existing prefix if repeated
+    const cleanPoint = point.replace(/^[✓⚠✗👍👎▪]\s*/, '');
+    li.innerText = `${icon} ${cleanPoint}`;
+    whyList.appendChild(li);
+  });
 
   // Render V2.2 Context Detail Modules
   modeDetails.innerHTML = '';
@@ -322,8 +471,12 @@ async function renderScanResults(data) {
   // Active Memory Logs Check & Comparison
   await checkAndRenderMemory(data);
 
-  // Load quick dialog greeting in advice bubble
-  appendChatMessage('assistant', data.shelby_says || "Here is what I found! Let me know if you want to chat about this page. 🦊💖");
+  // Diagnostics Panel Updates
+  dbgScanSource.innerText = customSource || data.scan_source || "AI";
+  dbgEvidenceCount.innerText = data.evidence_count || "0";
+  dbgBackend.innerText = "Online";
+  dbgOpenai.innerText = data.openai_status || "Online";
+  dbgLastScan.innerText = `${data.scan_time_ms}ms`;
 }
 
 function renderModeDetails(details) {
@@ -331,21 +484,21 @@ function renderModeDetails(details) {
     const grid = document.createElement('div');
     grid.className = 'shelby-pros-cons-grid';
 
-    // Pros Card
-    const pros = details.pros || [];
-    if (pros.length > 0) {
+    // Best For Card
+    const bestFor = details.best_for || [];
+    if (bestFor.length > 0) {
       const card = document.createElement('div');
       card.className = 'shelby-pro-card';
-      card.innerHTML = `<h4>👍 Pros</h4><ul class="shelby-detail-sublist">${pros.map(p => `<li class="shelby-detail-subitem">✓ ${p}</li>`).join('')}</ul>`;
+      card.innerHTML = `<h4>👍 Best For:</h4><ul class="shelby-detail-sublist">${bestFor.map(b => `<li class="shelby-detail-subitem">✓ ${b}</li>`).join('')}</ul>`;
       grid.appendChild(card);
     }
 
-    // Cons Card
-    const cons = details.cons || [];
-    if (cons.length > 0) {
+    // Red Flags Card
+    const redFlags = details.red_flags || [];
+    if (redFlags.length > 0) {
       const card = document.createElement('div');
       card.className = 'shelby-con-card';
-      card.innerHTML = `<h4>👎 Cons</h4><ul class="shelby-detail-sublist">${cons.map(c => `<li class="shelby-detail-subitem">✗ ${c}</li>`).join('')}</ul>`;
+      card.innerHTML = `<h4>⚠ Red Flags:</h4><ul class="shelby-detail-sublist">${redFlags.map(r => `<li class="shelby-detail-subitem">⚠ ${r}</li>`).join('')}</ul>`;
       grid.appendChild(card);
     }
 
@@ -356,8 +509,8 @@ function renderModeDetails(details) {
       card.className = 'shelby-analysis-card';
       card.innerHTML = `
         <div class="shelby-analysis-title">💰 Price Analysis (${price.current_price || ''})</div>
-        <p>${price.explanation || ''}</p>
-        ${price.inflated_mrp ? `<strong style="color:var(--danger)">⚠️ Possible inflated MRP detected!</strong>` : ''}
+        <p><strong>Discount:</strong> ${price.discount_analysis || 'N/A'}</p>
+        <p style="margin-top:4px;">${price.explanation || ''}</p>
       `;
       grid.appendChild(card);
     }
@@ -369,8 +522,8 @@ function renderModeDetails(details) {
       card.className = 'shelby-analysis-card';
       card.innerHTML = `
         <div class="shelby-analysis-title">⭐ Review Integrity (${rev.rating_quality || ''})</div>
-        <p>Total: ${rev.review_count || ''}</p>
-        <p>${rev.suspicious_patterns || ''}</p>
+        <p><strong>Total Scanned:</strong> ${rev.review_count || ''}</p>
+        <p><strong>Sentiment:</strong> ${rev.sentiment || 'Mixed'}</p>
       `;
       grid.appendChild(card);
     }
@@ -472,7 +625,6 @@ function renderModeDetails(details) {
       chip.className = `shelby-style-chip ${idx === 0 ? 'active' : ''}`;
       chip.innerText = styleName;
       chip.addEventListener('click', () => {
-        // Clear active classes
         document.querySelectorAll('.shelby-style-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         draftBox.innerText = currentDraftOptions[styleName] || 'No draft available.';
@@ -507,7 +659,7 @@ async function checkAndRenderMemory(data) {
   const prevScan = storageData[urlKey];
 
   // Current values
-  const currentRec = data.details.recommendation || data.risk_level;
+  const currentRec = data.recommendation;
   let currentPrice = null;
   let currentReviews = null;
 
@@ -587,7 +739,6 @@ async function handleImageAnalysis(imageUrl) {
   const backendUrl = "http://127.0.0.1:8000/api/analyze-image";
   
   try {
-    // 1. Fetch image locally as blob and convert to Base64
     const resBlob = await fetch(imageUrl);
     const blob = await resBlob.blob();
     const reader = new FileReader();
@@ -596,17 +747,20 @@ async function handleImageAnalysis(imageUrl) {
     reader.onloadend = async () => {
       const base64data = reader.result;
       
-      // 2. Call backend Vision endpoint
       const response = await fetch(backendUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_data: base64data })
       });
       
-      if (!response.ok) throw new Error(`Status ${response.status}`);
-      const data = await response.json();
+      if (!response.ok) {
+        updateRequestStatus(`/api/analyze-image - ${response.status} Error`, false);
+        throw new Error(`Status ${response.status}`);
+      }
       
-      // 3. Render Vision analysis
+      const data = await response.json();
+      updateRequestStatus('/api/analyze-image - 200 OK', true);
+      
       imageVerdict.innerText = data.verdict;
       
       let badgeClass = 'warning';
@@ -661,8 +815,10 @@ async function handleChatSubmit() {
   chatSubmitBtn.disabled = true;
 
   const backendUrl = "http://127.0.0.1:8000/api/ask";
+  
+  // If Vision is disabled, bypass scanning context caching IDs
   const payload = {
-    scan_id: currentScanId || "unknown",
+    scan_id: isVisionEnabled ? (currentScanId || "unknown") : "standalone",
     question: query,
     history: chatHistory.map(h => ({ role: h.role, content: h.content }))
   };
@@ -674,8 +830,15 @@ async function handleChatSubmit() {
       body: JSON.stringify(payload)
     });
 
-    if (!response.ok) throw new Error(`Status ${response.status}`);
+    if (!response.ok) {
+      updateRequestStatus(`/api/ask - ${response.status} Error`, false);
+      throw new Error(`Status ${response.status}`);
+    }
+    
     const data = await response.json();
+    const isStandalone = !isVisionEnabled;
+    updateRequestStatus(`/api/ask - 200 OK${isStandalone ? ' (Standalone)' : ''}`, true);
+    
     appendChatMessage('assistant', data.answer);
   } catch (error) {
     console.error('Shelby chat answer failed:', error);
