@@ -1,4 +1,5 @@
 // content.js - V2.2 Browser Native Integration Script for Shelby AI
+console.log("[Shelby] Content script loaded");
 
 (function() {
   if (document.getElementById('shelby-ai-panel')) return;
@@ -32,7 +33,6 @@
     let dominantBg = 'rgba(255, 255, 255, 0.7)';
     
     try {
-      // Background brightness check
       const bodyBg = window.getComputedStyle(document.body).backgroundColor;
       if (bodyBg && bodyBg !== 'transparent' && bodyBg !== 'rgba(0, 0, 0, 0)') {
         const rgb = bodyBg.match(/\d+/g);
@@ -49,7 +49,6 @@
         dominantBg = 'rgba(30, 41, 59, 0.75)';
       }
       
-      // Look for a colorful accent button/link color
       const targets = Array.from(document.querySelectorAll('button, a, h1, h2, input[type="submit"]'));
       for (const el of targets) {
         const style = window.getComputedStyle(el);
@@ -65,7 +64,6 @@
             const b = parseInt(rgb[2]);
             const max = Math.max(r, g, b);
             const min = Math.min(r, g, b);
-            // Saturated color filter (skips grayscale)
             if (max - min > 40 && max > 50 && max < 250) {
               return `rgb(${r}, ${g}, ${b})`;
             }
@@ -80,7 +78,7 @@
         }
       }
     } catch (e) {
-      console.warn("Theme parsing error:", e);
+      console.warn("[Shelby] Theme parsing error:", e);
     }
     
     return { isDark, accentColor, dominantBg };
@@ -90,6 +88,8 @@
   const iframe = document.createElement('iframe');
   iframe.id = 'shelby-ai-panel';
   iframe.src = chrome.runtime.getURL('panel.html');
+  // Initialize with display: none to prevent click interference
+  iframe.style.display = 'none';
   
   const iframeStyle = document.createElement('style');
   iframeStyle.textContent = `
@@ -120,7 +120,6 @@
     visionOnCached = config.shelby_vision !== false;
     if (window.ShelbyMascot) {
       window.ShelbyMascot.create({ mode, badgeText: 'Shelby AI' });
-      // Show mini notice popup only if Vision is enabled
       if (mode !== 'General' && visionOnCached) {
         setTimeout(() => {
           window.ShelbyMascot.showNotice();
@@ -135,7 +134,12 @@
   function togglePanel(open, focusInput = false, analyzeImage = null) {
     isPanelOpen = open;
     if (open) {
-      iframe.classList.add('shelby-panel-open');
+      // Show iframe before sliding it in
+      iframe.style.display = 'block';
+      setTimeout(() => {
+        iframe.classList.add('shelby-panel-open');
+      }, 20);
+      
       if (window.ShelbyMascot) {
         window.ShelbyMascot.hideNotice();
       }
@@ -166,6 +170,12 @@
       if (window.ShelbyMascot) {
         window.ShelbyMascot.setVisualState('idle');
       }
+      // Hide iframe after transition finishes to prevent click blocking
+      setTimeout(() => {
+        if (!isPanelOpen) {
+          iframe.style.display = 'none';
+        }
+      }, 300);
     }
   }
 
@@ -235,7 +245,7 @@
     const visionOn = config.shelby_vision !== false;
     
     if (!visionOn) {
-      console.log("Shelby Vision is OFF: Scraping disabled.");
+      console.log("[Shelby] Vision is OFF: Scraping disabled.");
       return { page_context: "", conversation_context: "" };
     }
 
@@ -253,12 +263,10 @@
         }
       }
       if (!price) {
-        // Try fallback selector search
         const priceEl = document.querySelector('[class*="price"], [class*="Price"]');
         if (priceEl) price = priceEl.innerText.trim();
       }
       
-      // Grab main details/description block if available, fallback to body text
       const descEl = document.getElementById('feature-bullets') || document.querySelector('[class*="description"]') || document.body;
       const details = descEl.innerText.slice(0, 3500);
       
@@ -267,7 +275,6 @@
       
     } else if (mode === 'Email') {
       const subject = document.querySelector('h1, h2.hP')?.innerText || document.title;
-      // Gmail specific sender and body threads selector check
       const sender = document.querySelector('.gD')?.innerText || 'Unknown';
       const bodyEl = document.querySelector('.a3s') || document.body;
       const emails = bodyEl.innerText.slice(0, 3000);
@@ -276,19 +283,16 @@
       conversationContext = emails;
       
     } else if (mode === 'Messaging') {
-      // Find active WhatsApp or Instagram chat contact header
       const contactEl = document.querySelector('header span[title], [class*="ChatHeader"] span, [class*="chat-header"]');
       const contactName = contactEl ? (contactEl.getAttribute('title') || contactEl.innerText.trim()) : 'Unknown Contact';
       
       pageContext = `Platform: ${window.location.hostname}\nActive Contact: ${contactName}`;
       
-      // WhatsApp Message Bubble Scraping
       let messages = [];
       const bubbleSelector = '.message-in, .message-out, [class*="message-in"], [class*="message-out"], [data-pre-plain-text]';
       const msgElements = Array.from(document.querySelectorAll(bubbleSelector));
       
       if (msgElements.length > 0) {
-        // Grab last 15 message bubbles
         const recentMsgs = msgElements.slice(-15);
         recentMsgs.forEach(el => {
           const textEl = el.querySelector('.copyable-text span, [class*="message-text"], span');
@@ -302,13 +306,11 @@
       }
       
       if (messages.length === 0) {
-        // General Messaging chat panel fallback
         const chatPane = document.querySelector('[class*="chat-body"], [class*="conversation"], [role="application"]') || document.body;
         const lines = chatPane.innerText.split('\n').filter(l => l.trim().length > 0);
         messages = lines.slice(-15).map(l => `Line: ${l}`);
       }
       
-      // Enforce conversation limit: last 15 messages, capped at 3000 chars
       conversationContext = messages.join('\n').slice(0, 3000);
       
     } else if (mode === 'Jobs') {
@@ -317,14 +319,13 @@
       conversationContext = "";
       
     } else {
-      // General/Research/News
       const title = document.querySelector('h1')?.innerText || document.title;
       const paragraphs = Array.from(document.querySelectorAll('p')).slice(0, 15).map(p => p.innerText).join('\n');
       pageContext = `Title: ${title}\nContent Excerpts:\n${paragraphs}`.slice(0, 4000);
       conversationContext = "";
     }
 
-    console.log(`Shelby Extracted Context: pageContext length = ${pageContext.length}, conversationContext length = ${conversationContext.length}`);
+    console.log(`[Shelby] Extracted Context: pageContext length = ${pageContext.length}, conversationContext length = ${conversationContext.length}`);
     return { page_context: pageContext, conversation_context: conversationContext };
   }
 
@@ -332,6 +333,8 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
       togglePanel(true, false, msg.imageUrl);
+    } else if (msg.type === 'SHELBY_TOGGLE_PANEL') {
+      togglePanel(!isPanelOpen);
     }
   });
 

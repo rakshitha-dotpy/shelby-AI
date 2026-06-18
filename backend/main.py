@@ -29,6 +29,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+async def health_check():
+    return {"status": "OK", "openai_key_configured": bool(OPENAI_API_KEY)}
+
 # Global caches (In-memory)
 scan_cache: Dict[str, Dict[str, Any]] = {}  # key: SHA-256, val: {"response": ScanResponse, "timestamp": float}
 scanned_contexts: Dict[str, str] = {}      # key: scan_id (UUID), val: combined context
