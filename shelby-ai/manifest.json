@@ -29,7 +29,8 @@
     "activeTab",
     "storage",
     "scripting",
-    "tabs"
+    "tabs",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>",

@@ -1,40 +1,96 @@
-// content.js - Injects Mascot & Side Panel, and performs page text scraping
+// content.js - V2.2 Browser Native Integration Script for Shelby AI
 
 (function() {
-  // Prevent duplicate injections
   if (document.getElementById('shelby-ai-panel')) return;
 
-  // 1. Detect Mode Based on URL
+  // 1. Context Detection Based on URL hostname
   const url = window.location.href;
   const hostname = window.location.hostname.toLowerCase();
   
-  let mode = 'General Trust Mode';
-  let badgeText = 'Safety Scan 🛡️';
-
-  const shoppingDomains = ['amazon.in', 'flipkart.com', 'meesho.com', 'myntra.com', 'snapdeal.com', 'ajio.com'];
+  let mode = 'General';
+  const shoppingDomains = ['amazon.', 'flipkart.com', 'meesho.com', 'myntra.com', 'snapdeal.com', 'ajio.com', 'ebay.', 'walmart.com'];
   const newsDomains = ['nytimes.com', 'bbc.com', 'bbc.co.uk', 'cnn.com', 'reuters.com', 'bloomberg.com', 'theguardian.com', 'forbes.com', 'wsj.com', 'indiatimes.com'];
 
   if (shoppingDomains.some(domain => hostname.includes(domain))) {
-    mode = 'Shopping Mode';
-    badgeText = 'Shop Mode 🛒';
-  } else if (hostname.includes('mail.google.com')) {
-    mode = 'Scam Mode';
-    badgeText = 'Scam Mode 📧';
-  } else if (hostname.includes('linkedin.com')) {
-    mode = 'LinkedIn Trust Mode';
-    badgeText = 'Trust Mode 💼';
-  } else if (hostname.includes('wikipedia.org') || newsDomains.some(domain => hostname.includes(domain))) {
-    // Both Wikipedia and News Sites map to Content Intelligence Mode
-    mode = 'Content Intelligence Mode';
-    badgeText = 'Content AI 🤖';
+    mode = 'Shopping';
+  } else if (hostname.includes('mail.google.com') || hostname.includes('outlook.live') || hostname.includes('mail.yahoo')) {
+    mode = 'Email';
+  } else if (hostname.includes('web.whatsapp.com') || hostname.includes('instagram.com') || hostname.includes('linkedin.com/messaging')) {
+    mode = 'Messaging';
+  } else if (hostname.includes('linkedin.com/jobs') || hostname.includes('indeed.com') || hostname.includes('internshala.com')) {
+    mode = 'Jobs';
+  } else if (hostname.includes('wikipedia.org') || hostname.includes('britannica.com') || hostname.includes('medium.com') || hostname.includes('github.com')) {
+    mode = 'Research';
+  } else if (newsDomains.some(domain => hostname.includes(domain))) {
+    mode = 'News';
   }
 
-  // 2. Inject Iframe Container for Side Panel
+  // 2. Extract Accent Color and Brightness Level Dynamically
+  function extractPageTheme() {
+    let isDark = false;
+    let accentColor = '#6C63FF';
+    let dominantBg = 'rgba(255, 255, 255, 0.7)';
+    
+    try {
+      // Background brightness check
+      const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+      if (bodyBg && bodyBg !== 'transparent' && bodyBg !== 'rgba(0, 0, 0, 0)') {
+        const rgb = bodyBg.match(/\d+/g);
+        if (rgb && rgb.length >= 3) {
+          const r = parseInt(rgb[0]);
+          const g = parseInt(rgb[1]);
+          const b = parseInt(rgb[2]);
+          const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          isDark = luminance < 128;
+          dominantBg = isDark ? 'rgba(30, 41, 59, 0.75)' : 'rgba(255, 255, 255, 0.7)';
+        }
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        isDark = true;
+        dominantBg = 'rgba(30, 41, 59, 0.75)';
+      }
+      
+      // Look for a colorful accent button/link color
+      const targets = Array.from(document.querySelectorAll('button, a, h1, h2, input[type="submit"]'));
+      for (const el of targets) {
+        const style = window.getComputedStyle(el);
+        const bg = style.backgroundColor;
+        const col = style.color;
+        
+        const testColor = (c) => {
+          if (!c || c === 'transparent' || c === 'rgba(0, 0, 0, 0)') return null;
+          const rgb = c.match(/\d+/g);
+          if (rgb && rgb.length >= 3) {
+            const r = parseInt(rgb[0]);
+            const g = parseInt(rgb[1]);
+            const b = parseInt(rgb[2]);
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            // Saturated color filter (skips grayscale)
+            if (max - min > 40 && max > 50 && max < 250) {
+              return `rgb(${r}, ${g}, ${b})`;
+            }
+          }
+          return null;
+        };
+        
+        const match = testColor(bg) || testColor(col);
+        if (match) {
+          accentColor = match;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn("Theme parsing error:", e);
+    }
+    
+    return { isDark, accentColor, dominantBg };
+  }
+
+  // 3. Inject Iframe Container for Side Panel
   const iframe = document.createElement('iframe');
   iframe.id = 'shelby-ai-panel';
   iframe.src = chrome.runtime.getURL('panel.html');
   
-  // Style the iframe container
   const iframeStyle = document.createElement('style');
   iframeStyle.textContent = `
     #shelby-ai-panel {
@@ -59,43 +115,47 @@
   document.head.appendChild(iframeStyle);
   document.body.appendChild(iframe);
 
-  // 3. Initialize Mascot
+  // 4. Initialize Mascot
   if (window.ShelbyMascot) {
-    window.ShelbyMascot.create({ mode, badgeText });
+    window.ShelbyMascot.create({ mode, badgeText: 'Shelby AI' });
+    
+    // Subtle float notice after 1.5 seconds for recognized pages
+    if (mode !== 'General') {
+      setTimeout(() => {
+        window.ShelbyMascot.showNotice();
+      }, 1500);
+    }
   }
 
   let isPanelOpen = false;
 
   // Toggle Panel open/close
-  function togglePanel(open, isDemo = false) {
+  function togglePanel(open, focusInput = false, analyzeImage = null) {
     isPanelOpen = open;
     if (open) {
       iframe.classList.add('shelby-panel-open');
+      if (window.ShelbyMascot) {
+        window.ShelbyMascot.hideNotice();
+      }
       
-      // Check for highlighted text selection
       const selectedText = window.getSelection().toString().trim();
       let activeMode = mode;
-      let activeBadge = badgeText;
       
-      // Override mode to Scam Mode if text is highlighted
-      if (selectedText.length > 0 && !isDemo) {
-        activeMode = 'Scam Mode';
-        activeBadge = 'Scam Mode 📧';
+      if (selectedText.length > 0 && !analyzeImage) {
+        activeMode = 'Scam';
       }
 
-      if (window.ShelbyMascot) {
-        window.ShelbyMascot.updateBadge(activeBadge);
-      }
-
-      // Let the iframe know it is open and what mode it should initialize
       setTimeout(() => {
+        const theme = extractPageTheme();
         iframe.contentWindow.postMessage({
           type: 'SHELBY_PANEL_OPENED',
           payload: { 
             url: window.location.href, 
-            mode: activeMode, 
-            isDemo,
-            selectedText: selectedText || null
+            mode: activeMode,
+            selectedText: selectedText || null,
+            focusInput,
+            theme,
+            analyzeImage
           }
         }, '*');
       }, 100);
@@ -103,7 +163,6 @@
       iframe.classList.remove('shelby-panel-open');
       if (window.ShelbyMascot) {
         window.ShelbyMascot.setVisualState('idle');
-        window.ShelbyMascot.updateBadge(badgeText);
       }
     }
   }
@@ -111,83 +170,118 @@
   // Click mascot button behavior
   const mascotBtn = document.getElementById('shelby-mascot-btn');
   if (mascotBtn) {
-    mascotBtn.addEventListener('click', (e) => {
-      // If the mascot was dragged rather than clicked, ignore click
-      if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) {
-        return;
-      }
+    mascotBtn.addEventListener('click', () => {
+      if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) return;
       togglePanel(!isPanelOpen);
     });
   }
 
-  // Keyboard shortcut Ctrl+Shift+S globally (Demo Mode)
+  // Notice bubble click
+  const noticeEl = document.getElementById('shelby-mascot-notice-id');
+  if (noticeEl) {
+    noticeEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePanel(true);
+    });
+  }
+
+  // Keyboard shortcut Ctrl+Shift+Space (Command Palette Toggle)
   window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && e.code === 'KeyS') {
+    if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
       e.preventDefault();
-      togglePanel(true, true); // Open in Demo Mode
+      togglePanel(!isPanelOpen, true);
     }
   });
 
-  // 4. Scrape DOM Contents
-  function scrapePageContent() {
+  // Cursor reply text injector
+  function insertTextAtCursor(text) {
+    const activeEl = document.activeElement;
+    if (!activeEl) return false;
+    
+    if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') {
+      const start = activeEl.selectionStart;
+      const end = activeEl.selectionEnd;
+      const val = activeEl.value;
+      activeEl.value = val.substring(0, start) + text + val.substring(end);
+      activeEl.selectionStart = activeEl.selectionEnd = start + text.length;
+      activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    } else if (activeEl.isContentEditable) {
+      activeEl.focus();
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return false;
+      selection.deleteFromDocument();
+      
+      const range = selection.getRangeAt(0);
+      const textNode = document.createTextNode(text);
+      range.insertNode(textNode);
+      
+      range.setStartAfter(textNode);
+      range.setEndAfter(textNode);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      activeEl.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    return false;
+  }
+
+  // 5. Scrape DOM Contents (Respected by Privacy Flag)
+  async function scrapePageContent() {
+    // Check global privacy flag first
+    const config = await chrome.storage.local.get('shelby_vision');
+    const visionOn = config.shelby_vision !== false;
+    
+    if (!visionOn) {
+      console.log("Shelby Vision is OFF: Scraping disabled.");
+      return "Shelby Vision is currently disabled. Shelby cannot read the page content until enabled.";
+    }
+
     let scrapedText = "";
     
-    if (mode === 'Shopping Mode') {
-      const title = document.title;
-      // Scrape potential prices
-      const priceSelectors = [
-        '.a-price-whole', '#priceblock_ourprice', '#priceblock_dealprice',
-        '.price-sales', '.selling-price', '.pdp-price', '.price',
-        '[data-testid="price-display"]'
-      ];
+    if (mode === 'Shopping') {
+      const priceSelectors = ['.a-price-whole', '.selling-price', '.pdp-price', '.price', '[data-testid="price-display"]'];
       let price = '';
-      for (const selector of priceSelectors) {
-        const el = document.querySelector(selector);
+      for (const s of priceSelectors) {
+        const el = document.querySelector(s);
         if (el && el.innerText.trim()) {
           price = el.innerText.trim();
           break;
         }
       }
-      
-      // Look for reviews
-      const reviewText = document.body.innerText.slice(0, 5000);
-      scrapedText = `Product Title: ${title}\nPrice: ${price}\nBody details:\n${reviewText}`;
-
-    } else if (mode === 'Scam Mode') {
-      // Gmail Scrape
-      const subjectEl = document.querySelector('h2.hP');
-      const senderEl = document.querySelector('.gD');
-      const emailBodyEl = document.querySelector('.a3s');
-
-      const subject = subjectEl ? subjectEl.innerText : 'Unknown Subject';
-      const sender = senderEl ? `${senderEl.innerText} <${senderEl.getAttribute('email') || ''}>` : 'Unknown Sender';
-      const body = emailBodyEl ? emailBodyEl.innerText : document.body.innerText.slice(0, 4000);
-
-      scrapedText = `Subject: ${subject}\nSender: ${sender}\nEmail Body:\n${body}`;
-
-    } else if (mode === 'LinkedIn Trust Mode') {
-      const profileName = document.querySelector('.text-heading-xlarge')?.innerText || '';
-      const tagline = document.querySelector('.text-body-medium')?.innerText || '';
-      const bodyText = document.body.innerText.slice(0, 5000);
-      scrapedText = `Profile Name: ${profileName}\nTagline: ${tagline}\nContent Details:\n${bodyText}`;
-
+      const reviewText = document.body.innerText.slice(0, 4000);
+      scrapedText = `Product: ${document.title}\nPrice: ${price}\nReview Excerpts:\n${reviewText}`;
+    } else if (mode === 'Email') {
+      const subject = document.querySelector('h2.hP')?.innerText || 'Unknown Subject';
+      const body = document.querySelector('.a3s')?.innerText || document.body.innerText.slice(0, 4000);
+      scrapedText = `Subject: ${subject}\nEmail Details:\n${body}`;
+    } else if (mode === 'Messaging') {
+      const chatPane = document.querySelector('[data-tab="8"]') || document.body;
+      const visibleMsg = chatPane.innerText.slice(-3000);
+      scrapedText = `Conversation Log:\n${visibleMsg}`;
+    } else if (mode === 'Jobs') {
+      const jobDesc = document.querySelector('.job-description') || document.querySelector('[class*="description"]') || document.body;
+      scrapedText = `Job Posting: ${document.title}\nDescription details:\n${jobDesc.innerText.slice(0, 4000)}`;
     } else {
+      // General/Research/News
       const title = document.querySelector('h1')?.innerText || document.title;
-      const paragraphs = Array.from(document.querySelectorAll('p'))
-        .slice(0, 10)
-        .map(p => p.innerText)
-        .join('\n');
-      
-      scrapedText = `Title: ${title}\nContent:\n${paragraphs}`;
+      const paragraphs = Array.from(document.querySelectorAll('p')).slice(0, 15).map(p => p.innerText).join('\n');
+      scrapedText = `Title: ${title}\nContent Paragraphs:\n${paragraphs}`;
     }
 
-    // Strictly limit to 5000 characters to conserve API tokens
-    return scrapedText.slice(0, 5000);
+    return scrapedText.slice(0, 4500);
   }
 
-  // 5. Secure message channel between host page and side panel iframe
-  window.addEventListener('message', (event) => {
-    // Only accept messages from our own extension files
+  // 6. Listen for messages from background/panel
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
+      // Open panel and load image vision analysis
+      togglePanel(true, false, msg.imageUrl);
+    }
+  });
+
+  window.addEventListener('message', async (event) => {
     if (event.origin !== `chrome-extension://${chrome.runtime.id}`) return;
 
     const msg = event.data;
@@ -195,7 +289,7 @@
       togglePanel(false);
     } else if (msg.type === 'SHELBY_REQUEST_SCRAPE') {
       const selectedText = window.getSelection().toString().trim();
-      const scrapedText = scrapePageContent();
+      const scrapedText = await scrapePageContent();
       iframe.contentWindow.postMessage({
         type: 'SHELBY_SEND_SCRAPED_DATA',
         payload: {
@@ -205,8 +299,10 @@
           selectedText: selectedText || null
         }
       }, '*');
+    } else if (msg.type === 'SHELBY_INSERT_REPLY') {
+      // Insert reply text at cursor
+      insertTextAtCursor(msg.payload.text);
     } else if (msg.type === 'SHELBY_UPDATE_MASCOT_VISUAL') {
-      // Update mascot visual glows based on score
       if (window.ShelbyMascot) {
         window.ShelbyMascot.setVisualState(msg.payload.state);
       }
