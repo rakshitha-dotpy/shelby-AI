@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Shelby AI",
+  "version": "1.0.0",
+  "description": "Your friendly, cute AI companion that helps you determine whether you can trust what you see on the internet.",
+  "icons": {
+    "16": "assets/shelby-icon-16.png",
+    "48": "assets/shelby-icon-48.png",
+    "128": "assets/shelby-icon-128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/shelby-icon-16.png",
+      "48": "assets/shelby-icon-48.png",
+      "128": "assets/shelby-icon-128.png"
+    },
+    "default_title": "Shelby AI"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["mascot.js", "content.js"]
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:8000/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "panel.html",
+        "panel.css",
+        "panel.js",
+        "assets/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

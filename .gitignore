@@ -1,0 +1,11 @@
+# Ignore backend environment variables containing API keys
+backend/.env
+
+# Python caching & build artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.vscode/
+.idea/

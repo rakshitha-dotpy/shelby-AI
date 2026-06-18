@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shelby AI Panel</title>
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="shelby-panel-container">
+    
+    <!-- Header Section -->
+    <header class="shelby-header">
+      <div class="shelby-header-left">
+        <img src="assets/shelby-icon-48.png" alt="Shelby Logo" class="shelby-logo">
+        <div class="shelby-title-group">
+          <h1 class="shelby-app-name">Shelby AI</h1>
+          <span class="shelby-tagline" id="shelby-tagline-text">Your Trust Companion</span>
+        </div>
+      </div>
+      <div class="shelby-header-right">
+        <span class="shelby-mode-badge" id="shelby-panel-mode-badge">Safety Scan 🛡️</span>
+        <button id="close-panel-btn" class="shelby-close-btn" aria-label="Close panel">&times;</button>
+      </div>
+      <!-- Scanning Line Animation -->
+      <div id="shelby-scanning-line" class="shelby-scanning-line"></div>
+    </header>
+
+    <!-- Tab Navigation Bar -->
+    <div class="shelby-tab-bar">
+      <button id="tab-scan" class="shelby-tab-btn active">🔎 Companion</button>
+      <button id="tab-history" class="shelby-tab-btn">📜 History</button>
+    </div>
+
+    <!-- Scrollable Main Panel Content -->
+    <main class="shelby-main-content">
+      
+      <!-- Companion Scan View -->
+      <div id="view-scan" class="shelby-view">
+        <!-- AI Offline Warning Box -->
+        <div id="shelby-fallback-warning" class="shelby-fallback-warning shelby-hidden">
+          ⚠️ AI reasoning offline. Showing security-only audit.
+        </div>
+
+        <!-- Memory Alert Container -->
+        <div id="shelby-memory-box" class="shelby-memory-box shelby-hidden">
+          <span class="shelby-memory-icon">🧠</span>
+          <div class="shelby-memory-content" id="shelby-memory-msg">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Core Score Section -->
+        <section class="shelby-score-section">
+          <div class="shelby-score-container">
+            <svg class="shelby-progress-ring" width="120" height="120">
+              <circle class="shelby-progress-ring-bg" stroke="#EAEBFF" stroke-width="10" fill="transparent" r="50" cx="60" cy="60" />
+              <circle id="shelby-progress-ring-bar" class="shelby-progress-ring-bar" stroke="#6C63FF" stroke-width="10" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60" />
+            </svg>
+            <div class="shelby-score-text">
+              <span id="shelby-score-value" class="shelby-score-value">0</span>
+              <span id="shelby-score-title" class="shelby-score-label">Trust Score</span>
+            </div>
+          </div>
+          <div class="shelby-score-details">
+            <div id="shelby-score-verdict" class="shelby-score-verdict">Auditing...</div>
+            <div id="shelby-confidence-rating" class="shelby-confidence-rating shelby-hidden">
+              Confidence: <span id="shelby-confidence-value">High</span>
+            </div>
+            <div id="shelby-scan-time" class="shelby-scan-time shelby-hidden">
+              Analyzed in 0.0s
+            </div>
+          </div>
+        </section>
+
+        <!-- Why this score? Section -->
+        <section id="shelby-why-section" class="shelby-why-section card shelby-hidden">
+          <h3 class="shelby-section-title">📊 Why this score?</h3>
+          <ul id="shelby-why-list" class="shelby-why-list">
+            <!-- Populated dynamically -->
+          </ul>
+        </section>
+
+        <!-- Sub-Scores Section -->
+        <section class="shelby-subscores-section card">
+          <h3 class="shelby-section-title">Core Safety Metrics</h3>
+          <div class="shelby-subscore-list">
+            
+            <div class="shelby-subscore-row">
+              <div class="shelby-subscore-info">
+                <span id="sub-label-1" class="shelby-subscore-label">🛡️ Security</span>
+                <span id="sub-val-1" class="shelby-subscore-val">0%</span>
+              </div>
+              <div class="shelby-bar-container">
+                <div id="sub-bar-1" class="shelby-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="shelby-subscore-row">
+              <div class="shelby-subscore-info">
+                <span id="sub-label-2" class="shelby-subscore-label">⭐ Reputation</span>
+                <span id="sub-val-2" class="shelby-subscore-val">0%</span>
+              </div>
+              <div class="shelby-bar-container">
+                <div id="sub-bar-2" class="shelby-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="shelby-subscore-row">
+              <div class="shelby-subscore-info">
+                <span id="sub-label-3" class="shelby-subscore-label">💰 Content Quality</span>
+                <span id="sub-val-3" class="shelby-subscore-val">0%</span>
+              </div>
+              <div class="shelby-bar-container">
+                <div id="sub-bar-3" class="shelby-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="shelby-subscore-row">
+              <div class="shelby-subscore-info">
+                <span id="sub-label-4" class="shelby-subscore-label">🔒 Privacy</span>
+                <span id="sub-val-4" class="shelby-subscore-val">0%</span>
+              </div>
+              <div class="shelby-bar-container">
+                <div id="sub-bar-4" class="shelby-bar-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- Sources Audited Section -->
+        <section id="shelby-sources-section" class="shelby-sources-section card shelby-hidden">
+          <h3 class="shelby-section-title">🔌 Sources Audited</h3>
+          <div class="shelby-sources-list">
+            <div class="shelby-source-item" id="source-local">✓ Local Checks</div>
+            <div class="shelby-source-item" id="source-vt">✓ VirusTotal Database</div>
+            <div class="shelby-source-item" id="source-gemini">✓ Gemini AI Heuristics</div>
+          </div>
+        </section>
+
+        <!-- Details Section -->
+        <section id="shelby-details-section" class="shelby-details-section card">
+          <h3 class="shelby-section-title">Audit Findings</h3>
+          <div id="shelby-details-content">
+            <div class="shelby-scanning-placeholder">
+              <div class="shelby-pulse-dot"></div>
+              <span>Waiting for audit scan...</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Action Button Section -->
+        <div class="shelby-action-btn-container">
+          <button id="shelby-scan-again-btn" class="shelby-scan-again-btn">
+            <span>🔄</span> Scan Page Again
+          </button>
+        </div>
+      </div>
+
+      <!-- Scan History View -->
+      <div id="view-history" class="shelby-view shelby-hidden">
+        <div class="shelby-history-header-card card">
+          <h3 class="shelby-section-title">🕒 Recent Audits</h3>
+          <p class="shelby-history-desc">The last 10 websites you scanned and their calculated risk levels.</p>
+        </div>
+        <ul id="shelby-history-list" class="shelby-history-list">
+          <!-- Populated dynamically -->
+        </ul>
+        <div class="shelby-history-actions">
+          <button id="shelby-clear-history-btn" class="shelby-clear-history-btn">🗑️ Clear Scan History</button>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Shelby Says Advice Bubble Footer -->
+    <footer class="shelby-footer">
+      <div class="shelby-says-container">
+        <div class="shelby-says-avatar-container">
+          <img src="assets/shelby-icon-48.png" alt="Shelby" class="shelby-says-avatar">
+          <span class="shelby-says-name">Shelby Says:</span>
+        </div>
+        <div class="shelby-says-bubble">
+          <p id="shelby-says-text" class="shelby-says-text">Hi! Highlight some text to run Scam Mode, or I'll run a trust check of this page... 💖</p>
+        </div>
+        <!-- Ask Shelby container -->
+        <div id="shelby-ask-container" class="shelby-ask-container shelby-hidden">
+          <input type="text" id="shelby-ask-input" placeholder="Ask Shelby about this page..." />
+          <button id="shelby-ask-submit-btn">Ask</button>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>
