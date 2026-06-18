@@ -116,12 +116,24 @@ console.log("[Shelby] Content script loaded");
 
   let isPanelOpen = false;
 
+  // early message listener registration
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
+      togglePanel(true, false, msg.imageUrl);
+    } else if (msg.type === 'SHELBY_TOGGLE_PANEL') {
+      console.log("[Shelby] Toggle message received");
+      togglePanel(!isPanelOpen);
+    }
+  });
+  console.log("[Shelby] Message listener registered");
+
   // 4. Initialize Mascot inside storage check
   let visionOnCached = true;
   chrome.storage.local.get('shelby_vision', (config) => {
     visionOnCached = config.shelby_vision !== false;
     if (window.ShelbyMascot) {
       window.ShelbyMascot.create({ mode, badgeText: 'Shelby AI' });
+      console.log("[Shelby] Mascot created");
       if (mode !== 'General' && visionOnCached) {
         setTimeout(() => {
           window.ShelbyMascot.showNotice();
@@ -135,28 +147,52 @@ console.log("[Shelby] Content script loaded");
 
   // Safe Mascot elements binding after injection
   function bindMascotClickEvents() {
+    console.log(document.getElementById("shelby-mascot-btn"));
     const mascotBtn = document.getElementById('shelby-mascot-btn');
+    const noticeEl = document.getElementById('shelby-mascot-notice-id');
+
     if (mascotBtn) {
-      console.log("[Shelby] Mascot click listener bound successfully");
-      mascotBtn.addEventListener('click', () => {
-        console.log("[Shelby] Mascot clicked");
-        if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) {
-          console.log("[Shelby] Mascot dragging detected, skipping toggle");
-          return;
-        }
-        togglePanel(!isPanelOpen);
-      });
-    } else {
-      console.error("[Shelby Error] Failed to find mascot button element in DOM during binding");
+      if (!mascotBtn.dataset.shelbyBound) {
+        mascotBtn.addEventListener('click', () => {
+          console.log("[Shelby] Mascot clicked");
+          if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) {
+            console.log("[Shelby] Mascot dragging detected, skipping toggle");
+            return;
+          }
+          togglePanel(!isPanelOpen);
+        });
+        mascotBtn.dataset.shelbyBound = "true";
+        console.log("[Shelby] Mascot listener attached");
+      }
     }
 
-    const noticeEl = document.getElementById('shelby-mascot-notice-id');
     if (noticeEl) {
-      console.log("[Shelby] Notice bubble click listener bound successfully");
-      noticeEl.addEventListener('click', (e) => {
-        console.log("[Shelby] Notice bubble clicked");
-        e.stopPropagation();
-        togglePanel(true);
+      if (!noticeEl.dataset.shelbyBound) {
+        noticeEl.addEventListener('click', (e) => {
+          console.log("[Shelby] Notice bubble clicked");
+          e.stopPropagation();
+          togglePanel(true);
+        });
+        noticeEl.dataset.shelbyBound = "true";
+        console.log("[Shelby] Notice bubble listener attached");
+      }
+    }
+
+    // If elements are missing in DOM, retry binding with MutationObserver
+    if (!mascotBtn || !noticeEl) {
+      console.log("[Shelby] Mascot elements not in DOM yet. Initializing MutationObserver retry...");
+      const observer = new MutationObserver((mutations, obs) => {
+        const checkBtn = document.getElementById('shelby-mascot-btn');
+        const checkNotice = document.getElementById('shelby-mascot-notice-id');
+        if (checkBtn && checkNotice) {
+          console.log("[Shelby] Mascot elements found in DOM via MutationObserver");
+          obs.disconnect();
+          bindMascotClickEvents();
+        }
+      });
+      observer.observe(document.body || document.documentElement, {
+        childList: true,
+        subtree: true
       });
     }
   }
@@ -375,15 +411,7 @@ console.log("[Shelby] Content script loaded");
     return { page_context: pageContext, conversation_context: conversationContext };
   }
 
-  // 6. Listen for messages from background/panel
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
-      togglePanel(true, false, msg.imageUrl);
-    } else if (msg.type === 'SHELBY_TOGGLE_PANEL') {
-      console.log("[Shelby] Toggle message received");
-      togglePanel(!isPanelOpen);
-    }
-  });
+  // Note: Message listener registered early at the top of content.js
 
   window.addEventListener('message', async (event) => {
     if (event.origin !== `chrome-extension://${chrome.runtime.id}`) return;
