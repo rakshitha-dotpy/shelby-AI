@@ -37,19 +37,17 @@
     <!-- Scrollable Main Panel Content -->
     <main class="shelby-main-content">
       
-      <!-- Startup Diagnostics Report Card (V2.2 Bug Hunt Check) -->
+      <!-- Startup Diagnostics Checklist Card (V2.2 Bug Hunt Check) -->
       <section id="shelby-diagnostics-report" class="shelby-diagnostics-report card">
         <h3 class="shelby-section-title">⚙️ Startup Diagnostics (Build V2.2)</h3>
-        <div class="shelby-diag-grid">
-          <div class="shelby-diag-item"><strong>Extension Loaded:</strong> <span id="diag-extension-loaded" class="status-label success">✓ Loaded</span></div>
-          <div class="shelby-diag-item"><strong>Content Script:</strong> <span id="diag-content-script">--</span></div>
-          <div class="shelby-diag-item"><strong>Panel Injected:</strong> <span id="diag-panel-injected" class="status-label success">✓ Injected</span></div>
-          <div class="shelby-diag-item"><strong>Panel Visible:</strong> <span id="diag-panel-visible" class="status-label success">✓ Visible</span></div>
-          <div class="shelby-diag-item"><strong>Backend Connected:</strong> <span id="diag-backend-connected">--</span></div>
-          <div class="shelby-diag-item"><strong>OpenAI Available:</strong> <span id="diag-openai-status">--</span></div>
-          <div class="shelby-diag-item"><strong>Current URL:</strong> <span id="diag-url">--</span></div>
-          <div class="shelby-diag-item"><strong>Current Mode:</strong> <span id="diag-mode">--</span></div>
-        </div>
+        <ul class="shelby-diag-checklist-list">
+          <li class="shelby-diag-checklist-item success" id="chk-extension">✓ Extension Loaded</li>
+          <li class="shelby-diag-checklist-item warning" id="chk-content-script">⏳ Content Script Injected</li>
+          <li class="shelby-diag-checklist-item success" id="chk-panel-injected">✓ Panel Injected</li>
+          <li class="shelby-diag-checklist-item success" id="chk-panel-visible">✓ Panel Visible</li>
+          <li class="shelby-diag-checklist-item warning" id="chk-backend">⏳ Backend Connected</li>
+          <li class="shelby-diag-checklist-item warning" id="chk-openai">⏳ OpenAI Available</li>
+        </ul>
         <div id="shelby-diag-error-box" class="shelby-diag-error-box shelby-hidden">
           <div class="shelby-diag-error-title">❌ Startup Failures:</div>
           <ul id="shelby-diag-errors-list" class="shelby-diag-errors-list"></ul>

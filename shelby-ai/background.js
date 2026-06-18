@@ -24,6 +24,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Listener for extension toolbar icon clicks
 chrome.action.onClicked.addListener((tab) => {
   if (!tab || !tab.id) return;
+  console.log("[Shelby] Background icon clicked");
   chrome.tabs.sendMessage(tab.id, {
     type: "SHELBY_TOGGLE_PANEL"
   }).catch(err => {

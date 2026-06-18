@@ -114,7 +114,9 @@ console.log("[Shelby] Content script loaded");
   document.head.appendChild(iframeStyle);
   document.body.appendChild(iframe);
 
-  // 4. Initialize Mascot
+  let isPanelOpen = false;
+
+  // 4. Initialize Mascot inside storage check
   let visionOnCached = true;
   chrome.storage.local.get('shelby_vision', (config) => {
     visionOnCached = config.shelby_vision !== false;
@@ -125,19 +127,68 @@ console.log("[Shelby] Content script loaded");
           window.ShelbyMascot.showNotice();
         }, 1500);
       }
+      
+      // BIND mascot click listeners here now that elements are generated and exist in the DOM!
+      bindMascotClickEvents();
     }
   });
 
-  let isPanelOpen = false;
+  // Safe Mascot elements binding after injection
+  function bindMascotClickEvents() {
+    const mascotBtn = document.getElementById('shelby-mascot-btn');
+    if (mascotBtn) {
+      console.log("[Shelby] Mascot click listener bound successfully");
+      mascotBtn.addEventListener('click', () => {
+        console.log("[Shelby] Mascot clicked");
+        if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) {
+          console.log("[Shelby] Mascot dragging detected, skipping toggle");
+          return;
+        }
+        togglePanel(!isPanelOpen);
+      });
+    } else {
+      console.error("[Shelby Error] Failed to find mascot button element in DOM during binding");
+    }
 
-  // Toggle Panel open/close
+    const noticeEl = document.getElementById('shelby-mascot-notice-id');
+    if (noticeEl) {
+      console.log("[Shelby] Notice bubble click listener bound successfully");
+      noticeEl.addEventListener('click', (e) => {
+        console.log("[Shelby] Notice bubble clicked");
+        e.stopPropagation();
+        togglePanel(true);
+      });
+    }
+  }
+
+  // Toggle Panel open/close with detailed tracing logs
   function togglePanel(open, focusInput = false, analyzeImage = null) {
+    console.log("[Shelby] togglePanel called");
+    console.log("[Shelby] Current state:", isPanelOpen);
+    console.log("[Shelby] Target state:", open);
+
+    // Verify Panel DOM elements existence
+    console.log("[Shelby] Panel element selector check (#shelby-ai-panel):", document.querySelector("#shelby-ai-panel"));
+    console.log("[Shelby] Panel iframe element check (iframe):", document.querySelector("iframe"));
+
     isPanelOpen = open;
     if (open) {
-      // Show iframe before sliding it in
       iframe.style.display = 'block';
+      
+      // Let display: block render, then slide panel open
       setTimeout(() => {
         iframe.classList.add('shelby-panel-open');
+        console.log("[Shelby] Panel state: OPEN");
+        
+        // Log final computed visibility styles
+        const styles = window.getComputedStyle(iframe);
+        console.log("[Shelby] Final computed styles after open transition:", {
+          display: styles.display,
+          visibility: styles.visibility,
+          opacity: styles.opacity,
+          transform: styles.transform,
+          pointerEvents: styles.pointerEvents
+        });
       }, 20);
       
       if (window.ShelbyMascot) {
@@ -167,40 +218,35 @@ console.log("[Shelby] Content script loaded");
       }, 100);
     } else {
       iframe.classList.remove('shelby-panel-open');
+      console.log("[Shelby] Panel state: CLOSED");
+      
       if (window.ShelbyMascot) {
         window.ShelbyMascot.setVisualState('idle');
       }
-      // Hide iframe after transition finishes to prevent click blocking
+      
+      // Hide iframe after transition finishes to avoid intercepting clicks
       setTimeout(() => {
         if (!isPanelOpen) {
           iframe.style.display = 'none';
+          
+          const styles = window.getComputedStyle(iframe);
+          console.log("[Shelby] Final computed styles after close transition:", {
+            display: styles.display,
+            visibility: styles.visibility,
+            opacity: styles.opacity,
+            transform: styles.transform,
+            pointerEvents: styles.pointerEvents
+          });
         }
       }, 300);
     }
-  }
-
-  // Click mascot button behavior
-  const mascotBtn = document.getElementById('shelby-mascot-btn');
-  if (mascotBtn) {
-    mascotBtn.addEventListener('click', () => {
-      if (window.ShelbyMascot && window.ShelbyMascot.hasMoved) return;
-      togglePanel(!isPanelOpen);
-    });
-  }
-
-  // Notice bubble click
-  const noticeEl = document.getElementById('shelby-mascot-notice-id');
-  if (noticeEl) {
-    noticeEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      togglePanel(true);
-    });
   }
 
   // Keyboard shortcut Ctrl+Shift+Space (Command Palette Toggle)
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
       e.preventDefault();
+      console.log("[Shelby] Keyboard shortcut triggered panel toggle");
       togglePanel(!isPanelOpen, true);
     }
   });
@@ -334,6 +380,7 @@ console.log("[Shelby] Content script loaded");
     if (msg.type === 'SHELBY_ANALYZE_IMAGE') {
       togglePanel(true, false, msg.imageUrl);
     } else if (msg.type === 'SHELBY_TOGGLE_PANEL') {
+      console.log("[Shelby] Toggle message received");
       togglePanel(!isPanelOpen);
     }
   });

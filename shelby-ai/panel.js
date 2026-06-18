@@ -64,15 +64,13 @@ const requiredElements = {
   dbgOpenai: 'dbg-openai',
   dbgLastScan: 'dbg-last-scan',
   dbgCtxPreview: 'dbg-ctx-preview',
-  // Startup Diagnostics UI
-  diagExtensionLoaded: 'diag-extension-loaded',
-  diagContentScript: 'diag-content-script',
-  diagPanelInjected: 'diag-panel-injected',
-  diagPanelVisible: 'diag-panel-visible',
-  diagBackendConnected: 'diag-backend-connected',
-  diagOpenaiStatus: 'diag-openai-status',
-  diagUrl: 'diag-url',
-  diagMode: 'diag-mode',
+  // Startup Diagnostics checklist
+  chkExtension: 'chk-extension',
+  chkContentScript: 'chk-content-script',
+  chkPanelInjected: 'chk-panel-injected',
+  chkPanelVisible: 'chk-panel-visible',
+  chkBackend: 'chk-backend',
+  chkOpenai: 'chk-openai',
   diagErrorBox: 'shelby-diag-error-box',
   diagErrorsList: 'shelby-diag-errors-list'
 };
@@ -95,10 +93,10 @@ for (const [key, id] of Object.entries(requiredElements)) {
 if (missingElements.length > 0) {
   const errBox = document.getElementById('shelby-diag-error-box');
   const errList = document.getElementById('shelby-diag-errors-list');
-  const panelLoaded = document.getElementById('diag-panel-loaded');
-  if (panelLoaded) {
-    panelLoaded.innerText = '❌ Failed';
-    panelLoaded.className = 'status-label danger';
+  const chkPanel = document.getElementById('chk-panel-injected');
+  if (chkPanel) {
+    chkPanel.innerText = '❌ Panel Injected: Failed';
+    chkPanel.className = 'shelby-diag-checklist-item danger';
   }
   if (errBox && errList) {
     errBox.classList.remove('shelby-hidden');
@@ -181,14 +179,10 @@ window.addEventListener('message', async (event) => {
     pageSelectedText = msg.payload.selectedText;
     
     // Set Content Script connection status to green
-    if (dom.diagContentScript) {
-      dom.diagContentScript.innerText = "✓ Injected";
-      dom.diagContentScript.className = "status-label success";
+    if (dom.chkContentScript) {
+      dom.chkContentScript.innerText = "✓ Content Script Injected";
+      dom.chkContentScript.className = "shelby-diag-checklist-item success";
     }
-
-    // Set diagnostics current URL/Mode details
-    if (dom.diagUrl) dom.diagUrl.innerText = currentUrl ? currentUrl.replace(/^(https?:\/\/)?(www\.)?/, '').slice(0, 32) + '...' : '--';
-    if (dom.diagMode) dom.diagMode.innerText = currentContext;
 
     // Apply dynamic webpage theme variables
     if (msg.payload.theme) {
@@ -284,22 +278,22 @@ async function initializeScanSequence() {
 }
 
 function updateStartupDiagnosticsUI(health) {
-  if (dom.diagBackendConnected) {
+  if (dom.chkBackend) {
     if (health.reachable) {
-      dom.diagBackendConnected.innerText = "✓ Connected";
-      dom.diagBackendConnected.className = "status-label success";
+      dom.chkBackend.innerText = "✓ Backend Connected";
+      dom.chkBackend.className = "shelby-diag-checklist-item success";
     } else {
-      dom.diagBackendConnected.innerText = "❌ Offline";
-      dom.diagBackendConnected.className = "status-label danger";
+      dom.chkBackend.innerText = "❌ Backend Connected: Offline";
+      dom.chkBackend.className = "shelby-diag-checklist-item danger";
     }
   }
-  if (dom.diagOpenaiStatus) {
+  if (dom.chkOpenai) {
     if (health.reachable && !health.openai.includes("❌")) {
-      dom.diagOpenaiStatus.innerText = "✓ Available";
-      dom.diagOpenaiStatus.className = "status-label success";
+      dom.chkOpenai.innerText = "✓ OpenAI Available";
+      dom.chkOpenai.className = "shelby-diag-checklist-item success";
     } else {
-      dom.diagOpenaiStatus.innerText = health.openai;
-      dom.diagOpenaiStatus.className = "status-label danger";
+      dom.chkOpenai.innerText = `❌ OpenAI Available: ${health.openai.replace(/^[❌✓]\s*/, '')}`;
+      dom.chkOpenai.className = "shelby-diag-checklist-item danger";
     }
   }
 }
