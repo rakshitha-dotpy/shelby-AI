@@ -1,10 +1,8 @@
 // mascot.js - Shelby Mascot Button Injection and Management
-// Implements V2.2 subtle floating notice bubbles and dragging boundaries.
 
 window.ShelbyMascot = {
   element: null,
   badgeElement: null,
-  noticeElement: null,
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
@@ -25,7 +23,7 @@ window.ShelbyMascot = {
         right: 30px;
         width: 60px;
         height: 60px;
-        z-index: 2147483640;
+        z-index: 9999990;
         cursor: grab;
         user-select: none;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -68,52 +66,23 @@ window.ShelbyMascot = {
         animation: shelby-spin 1s infinite linear;
       }
 
-      /* Subtle Notification Speech Bubble */
-      .shelby-mascot-notice {
+      /* Badge style */
+      .shelby-mascot-badge {
         position: absolute;
-        bottom: 12px;
-        right: 75px;
-        background-color: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(12px);
-        color: #2F3542;
-        font-family: 'Inter', sans-serif;
+        bottom: 50px;
+        right: 50%;
+        transform: translateX(50%);
+        background-color: #2ED573;
+        color: white;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
         font-size: 11px;
-        font-weight: 700;
-        padding: 8px 14px;
-        border-radius: 16px 16px 4px 16px;
+        font-weight: bold;
+        padding: 4px 8px;
+        border-radius: 12px;
         white-space: nowrap;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.12);
-        border: 1.5px solid #EAEBFF;
-        pointer-events: auto;
-        cursor: pointer;
-        opacity: 0;
-        transform: translateX(15px);
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      }
-      .shelby-mascot-notice.visible {
-        opacity: 1;
-        transform: translateX(0);
-      }
-      .shelby-mascot-notice:hover {
-        transform: scale(1.05);
-        background-color: #ffffff;
-      }
-
-      /* Animated indicator */
-      .shelby-mascot-indicator {
-        position: absolute;
-        top: -2px;
-        right: -2px;
-        width: 12px;
-        height: 12px;
-        background-color: #FF4757;
-        border: 2px solid white;
-        border-radius: 50%;
-        display: none;
-        animation: shelby-indicator-pulse 1.5s infinite;
-      }
-      .shelby-mascot-indicator.active {
-        display: block;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        border: 1.5px solid white;
+        pointer-events: none;
       }
 
       /* Animations */
@@ -125,11 +94,6 @@ window.ShelbyMascot = {
       @keyframes shelby-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
-      }
-      @keyframes shelby-indicator-pulse {
-        0% { transform: scale(0.9); opacity: 1; }
-        50% { transform: scale(1.2); opacity: 0.8; }
-        100% { transform: scale(0.9); opacity: 1; }
       }
     `;
     document.head.appendChild(style);
@@ -145,66 +109,51 @@ window.ShelbyMascot = {
 
     const icon = document.createElement('div');
     icon.className = 'shelby-mascot-icon';
-    icon.innerHTML = '🛡️';
+    icon.innerHTML = '🛡️'; // Default Shelby shield representation
 
-    const indicator = document.createElement('div');
-    indicator.className = 'shelby-mascot-indicator';
-    indicator.id = 'shelby-mascot-indicator-id';
-
-    const notice = document.createElement('div');
-    notice.className = 'shelby-mascot-notice';
-    notice.id = 'shelby-mascot-notice-id';
-    notice.innerText = '🦊 Shelby noticed something';
+    const badge = document.createElement('div');
+    badge.className = 'shelby-mascot-badge';
+    badge.id = 'shelby-mascot-badge-id';
+    badge.innerText = modeDetails.badgeText;
 
     circle.appendChild(icon);
     container.appendChild(circle);
-    container.appendChild(indicator);
-    container.appendChild(notice);
+    container.appendChild(badge);
     document.body.appendChild(container);
 
     this.element = container;
-    this.noticeElement = notice;
+    this.badgeElement = badge;
 
     this.setupDragging();
   },
 
-  showNotice() {
-    if (this.noticeElement) {
-      this.noticeElement.classList.add('visible');
-      const indicator = document.getElementById('shelby-mascot-indicator-id');
-      if (indicator) indicator.classList.add('active');
-    }
-  },
-
-  hideNotice() {
-    if (this.noticeElement) {
-      this.noticeElement.classList.remove('visible');
-      const indicator = document.getElementById('shelby-mascot-indicator-id');
-      if (indicator) indicator.classList.remove('active');
+  updateBadge(text) {
+    if (this.badgeElement) {
+      this.badgeElement.innerText = text;
     }
   },
 
   setVisualState(state) {
     const circle = document.getElementById('shelby-mascot-circle-id');
-    const icon = document.querySelector('.shelby-mascot-icon');
-    if (!circle || !icon) return;
+    if (!circle) return;
 
+    // Reset classes
     circle.className = 'shelby-mascot-circle';
 
     if (state === 'scanning') {
       circle.classList.add('shelby-scanning');
-      icon.innerHTML = '🌀';
+      document.querySelector('.shelby-mascot-icon').innerHTML = '🌀';
     } else if (state === 'safe') {
       circle.classList.add('shelby-safe');
-      icon.innerHTML = '🛡️';
+      document.querySelector('.shelby-mascot-icon').innerHTML = '🛡️';
     } else if (state === 'warning') {
       circle.classList.add('shelby-warning');
-      icon.innerHTML = '⚠️';
+      document.querySelector('.shelby-mascot-icon').innerHTML = '⚠️';
     } else if (state === 'danger') {
       circle.classList.add('shelby-danger');
-      icon.innerHTML = '🚨';
+      document.querySelector('.shelby-mascot-icon').innerHTML = '🚨';
     } else {
-      icon.innerHTML = '🛡️';
+      document.querySelector('.shelby-mascot-icon').innerHTML = '🛡️';
     }
   },
 
@@ -212,6 +161,7 @@ window.ShelbyMascot = {
     const container = this.element;
 
     const onMouseDown = (e) => {
+      // Ignore right clicks
       if (e.button !== 0) return;
       
       this.isDragging = true;
@@ -236,12 +186,12 @@ window.ShelbyMascot = {
       
       if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
         this.hasMoved = true;
-        this.hideNotice(); // Hide speech bubble when dragged
       }
 
       let newX = this.elemStartX + dx;
       let newY = this.elemStartY + dy;
 
+      // Keep inside boundaries
       const padding = 10;
       const maxX = window.innerWidth - 70;
       const maxY = window.innerHeight - 70;

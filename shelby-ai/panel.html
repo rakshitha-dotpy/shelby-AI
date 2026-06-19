@@ -13,176 +13,168 @@
 <body>
   <div id="shelby-panel-container">
     
-    <!-- Top Header Section -->
+    <!-- Header Section -->
     <header class="shelby-header">
       <div class="shelby-header-left">
         <img src="assets/shelby-icon-48.png" alt="Shelby Logo" class="shelby-logo">
         <div class="shelby-title-group">
           <h1 class="shelby-app-name">Shelby AI</h1>
-          <span class="shelby-features-found" id="shelby-features-found-id">Finding context...</span>
+          <span class="shelby-tagline" id="shelby-tagline-text">Internet Trust Companion</span>
         </div>
       </div>
       <div class="shelby-header-right">
-        <!-- Universal Global Privacy Toggle -->
-        <button id="shelby-privacy-toggle-btn" class="shelby-privacy-badge vision-on">
-          <span class="shelby-pulse-dot"></span>
-          <span id="shelby-privacy-text-id">Vision ON</span>
-        </button>
+        <span class="shelby-mode-badge" id="shelby-panel-mode-badge">Safety Scan 🛡️</span>
         <button id="close-panel-btn" class="shelby-close-btn" aria-label="Close panel">&times;</button>
       </div>
       <!-- Scanning Line Animation -->
       <div id="shelby-scanning-line" class="shelby-scanning-line"></div>
     </header>
 
+    <!-- Tab Navigation Bar -->
+    <div class="shelby-tab-bar">
+      <button id="tab-scan" class="shelby-tab-btn active">🔎 Companion</button>
+      <button id="tab-history" class="shelby-tab-btn">📜 History</button>
+    </div>
+
     <!-- Scrollable Main Panel Content -->
     <main class="shelby-main-content">
       
-      <!-- Startup Diagnostics Checklist Card (V2.2 Bug Hunt Check) -->
-      <section id="shelby-diagnostics-report" class="shelby-diagnostics-report card">
-        <h3 class="shelby-section-title">⚙️ Startup Diagnostics (Build V2.2)</h3>
-        <ul class="shelby-diag-checklist-list">
-          <li class="shelby-diag-checklist-item success" id="chk-extension">✓ Extension Loaded</li>
-          <li class="shelby-diag-checklist-item warning" id="chk-content-script">⏳ Content Script Injected</li>
-          <li class="shelby-diag-checklist-item success" id="chk-panel-injected">✓ Panel Injected</li>
-          <li class="shelby-diag-checklist-item success" id="chk-panel-visible">✓ Panel Visible</li>
-          <li class="shelby-diag-checklist-item warning" id="chk-backend">⏳ Backend Connected</li>
-          <li class="shelby-diag-checklist-item warning" id="chk-openai">⏳ OpenAI Available</li>
-        </ul>
-        <div id="shelby-diag-error-box" class="shelby-diag-error-box shelby-hidden">
-          <div class="shelby-diag-error-title">❌ Startup Failures:</div>
-          <ul id="shelby-diag-errors-list" class="shelby-diag-errors-list"></ul>
-        </div>
-      </section>
-
-      <!-- Privacy Standalone Warning Badge (shown when Vision is OFF) -->
-      <div id="shelby-vision-off-warning" class="shelby-vision-warning-box shelby-hidden">
-        <span class="shelby-warning-icon">🔒</span>
-        <div class="shelby-warning-content">
-          <strong>Vision is OFF</strong>
-          <p>Shelby cannot read the webpage content. Chatting in General general assistant mode.</p>
-        </div>
-      </div>
-
-      <!-- Memory Comparison Alert Card -->
-      <div id="shelby-memory-box" class="shelby-memory-box shelby-hidden">
-        <span class="shelby-memory-icon">🧠</span>
-        <div class="shelby-memory-content">
-          <div class="shelby-memory-header">Shelby remembers:</div>
-          <div id="shelby-memory-last-visit">Last Visit: --</div>
-          <div id="shelby-memory-prev-advice">Previous Advice: --</div>
-          <div id="shelby-memory-changes" class="shelby-memory-highlight">Changes: --</div>
-        </div>
-      </div>
-
-      <!-- Suggested Actions Palette -->
-      <div class="shelby-suggested-actions-container">
-        <span class="shelby-suggested-label">Suggested Actions:</span>
-        <div id="shelby-suggested-actions" class="shelby-suggested-actions">
-          <!-- Dynamic Chips populated by active context -->
-        </div>
-      </div>
-
-      <!-- Image Authenticity Analysis Card (Vision API) -->
-      <section id="shelby-image-section" class="shelby-image-section card shelby-hidden">
-        <h3 class="shelby-section-title">🖼️ Image Authenticity Analysis</h3>
-        <div class="shelby-image-preview-container">
-          <img id="shelby-image-preview" src="" alt="Preview" class="shelby-image-preview">
-        </div>
-        <div class="shelby-verdict-row">
-          <span class="shelby-verdict-label">Verdict:</span>
-          <span id="shelby-image-verdict" class="shelby-verdict-badge">Analyzing...</span>
-        </div>
-        <div class="shelby-confidence-row">
-          <span>Confidence:</span>
-          <span id="shelby-image-confidence" class="shelby-confidence-value">--</span>
-        </div>
-        <div class="shelby-image-explanation" id="shelby-image-explanation-id">
-          Shelby is analyzing this image...
-        </div>
-        <ul class="shelby-indicators-list" id="shelby-image-indicators">
-          <!-- List of indicators -->
-        </ul>
-      </section>
-
-      <!-- Dynamic Context Audit Findings -->
-      <section id="shelby-context-section" class="shelby-context-section card shelby-hidden">
-        
-        <!-- Recommendation Metric Row -->
-        <div class="shelby-recommendation-row">
-          <span class="shelby-rec-label">Recommendation:</span>
-          <span id="shelby-context-verdict" class="shelby-verdict-badge">Analyzing...</span>
-          <span id="shelby-scan-time" class="shelby-scan-time">0.0s</span>
+      <!-- Companion Scan View -->
+      <div id="view-scan" class="shelby-view">
+        <!-- AI Offline Warning Box -->
+        <div id="shelby-fallback-warning" class="shelby-fallback-warning shelby-hidden">
+          ⚠️ AI explanation offline. Showing security-only audit.
         </div>
 
-        <!-- Calculated Scores Grid -->
-        <div class="shelby-scores-grid">
-          <div class="shelby-score-card">
-            <span class="shelby-score-label">Trust Score</span>
-            <div id="shelby-context-trust-score" class="shelby-score-value">--</div>
+        <!-- Core Score Card -->
+        <section class="shelby-score-card glass">
+          <div class="shelby-score-row-main">
+            <div class="shelby-score-gauge-box">
+              <svg class="shelby-progress-ring" width="80" height="80">
+                <circle class="shelby-progress-ring-bg" stroke="rgba(234, 235, 255, 0.5)" stroke-width="8" fill="transparent" r="32" cx="40" cy="40" />
+                <circle id="shelby-progress-ring-bar" class="shelby-progress-ring-bar" stroke="#6C63FF" stroke-width="8" stroke-linecap="round" fill="transparent" r="32" cx="40" cy="40" />
+              </svg>
+              <div class="shelby-score-inner-text">
+                <span id="shelby-score-value">0</span>
+              </div>
+            </div>
+            <div class="shelby-score-meta-box">
+              <div class="shelby-meta-label">Trust Score</div>
+              <div id="shelby-score-fraction" class="shelby-score-fraction">0 / 100</div>
+              <div class="shelby-meta-label">Risk Level</div>
+              <div id="shelby-risk-category" class="shelby-risk-badge">Auditing...</div>
+            </div>
           </div>
-          <div class="shelby-score-card">
-            <span class="shelby-score-label">Confidence</span>
-            <div id="shelby-context-confidence" class="shelby-score-value font-medium">--</div>
+          <div class="shelby-score-footer">
+            <span id="shelby-confidence-rating" class="shelby-footer-telemetry">Confidence: <span id="shelby-confidence-value">High</span></span>
+            <span id="shelby-scan-time" class="shelby-footer-telemetry">Analyzed in 0.0s</span>
           </div>
-        </div>
+        </section>
 
-        <!-- AI Summary Block -->
-        <div class="shelby-summary-block">
-          <p id="shelby-context-summary" class="shelby-summary-text">Analyzing page context...</p>
-        </div>
-
-        <!-- Explainability Section -->
-        <div id="shelby-why-section-id" class="shelby-why-section">
-          <div class="shelby-why-title">Why?</div>
-          <ul id="shelby-why-list-id" class="shelby-why-list">
-            <!-- Populated with evidence bullets -->
+        <!-- Evidence Findings Section -->
+        <section id="shelby-evidence-section" class="shelby-evidence-section glass shelby-hidden">
+          <h3 class="shelby-section-title">📊 Evidence</h3>
+          <ul id="shelby-evidence-list" class="shelby-evidence-list">
+            <!-- Populated dynamically -->
           </ul>
-        </div>
+        </section>
 
-        <!-- Dynamic Detailed Content Nodes -->
-        <div id="shelby-mode-details" class="shelby-mode-details">
-          <!-- Dynamic context specific cards (Pros/Cons, Skills, Bias Analysis) -->
-        </div>
-
-      </section>
-
-      <!-- Persistent Adaptive "Chat With This Page" Panel -->
-      <section class="shelby-chat-section card">
-        <h3 class="shelby-section-title">💬 Chat With This Page</h3>
-        <div id="shelby-chat-log" class="shelby-chat-log">
-          <div class="shelby-chat-message assistant">
-            Hi! I'm Shelby. Ask me anything about this page, or click any suggested action above to get started! 🦊💖
+        <!-- Why Shelby Thinks This Section -->
+        <section id="shelby-details-section" class="shelby-details-section glass">
+          <h3 class="shelby-section-title">💡 Why Shelby Thinks This</h3>
+          <div id="shelby-details-content">
+            <div class="shelby-scanning-placeholder">
+              <div class="shelby-pulse-dot"></div>
+              <span>Waiting for audit scan...</span>
+            </div>
           </div>
-        </div>
-        <div class="shelby-chat-input-row">
-          <input type="text" id="shelby-chat-input" placeholder="Ask Shelby... (e.g. summarize this page)" />
-          <button id="shelby-chat-submit-btn" class="shelby-chat-submit-btn">Send</button>
-        </div>
-      </section>
+        </section>
 
-      <!-- Temporary Developer Diagnostics Panel (Debug Mode) -->
-      <section id="shelby-debug-section" class="shelby-debug-section card">
-        <h3 class="shelby-section-title">🛠️ Developer Diagnostics</h3>
-        <div class="shelby-debug-grid">
-          <div class="shelby-debug-item"><strong>Build:</strong> <span>V2.2</span></div>
-          <div class="shelby-debug-item"><strong>Scan Source:</strong> <span id="dbg-scan-source">--</span></div>
-          <div class="shelby-debug-item"><strong>Current Mode:</strong> <span id="dbg-mode">--</span></div>
-          <div class="shelby-debug-item"><strong>Ctx Quality:</strong> <span id="dbg-ctx-quality">--</span></div>
-          <div class="shelby-debug-item"><strong>Ctx Length:</strong> <span id="dbg-ctx-len">0</span> chars</div>
-          <div class="shelby-debug-item"><strong>Evidence:</strong> <span id="dbg-evidence-count">--</span></div>
-          <div class="shelby-debug-item"><strong>Last Request:</strong> <span id="dbg-last-request" class="dbg-status-label">--</span></div>
-          <div class="shelby-debug-item"><strong>Backend Status:</strong> <span id="dbg-backend">--</span></div>
-          <div class="shelby-debug-item"><strong>OpenAI Status:</strong> <span id="dbg-openai">--</span></div>
-          <div class="shelby-debug-item"><strong>Last Scan Speed:</strong> <span id="dbg-last-scan">--</span></div>
+        <!-- Image Authenticity Analysis Card (multimodal vision) -->
+        <section id="shelby-image-authenticity-section" class="shelby-image-authenticity-section glass shelby-hidden">
+          <h3 class="shelby-section-title">📷 Image Authenticity Analysis</h3>
+          <div class="shelby-image-analysis-card">
+            <div class="shelby-image-info-row">
+              <span class="shelby-analysis-label">Verdict:</span>
+              <span id="image-verdict-val" class="shelby-analysis-val">Likely Real</span>
+            </div>
+            <div class="shelby-image-info-row">
+              <span class="shelby-analysis-label">Confidence:</span>
+              <span id="image-confidence-val" class="shelby-analysis-val">Medium</span>
+            </div>
+            <div class="shelby-image-findings-box">
+              <span class="shelby-analysis-label">Indicators:</span>
+              <ul id="image-indicators-list" class="shelby-image-indicators-list">
+                <!-- Populated dynamically -->
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Developer Debug Panel -->
+        <section id="shelby-debug-section" class="shelby-debug-section glass">
+          <button id="shelby-debug-toggle-btn" class="shelby-debug-toggle-btn">
+            ⚙️ Developer Debug Panel <span class="toggle-arrow">▶</span>
+          </button>
+          <div id="shelby-debug-content" class="shelby-debug-content shelby-hidden">
+            <div class="debug-grid">
+              <div class="debug-item"><strong>Build:</strong> <span>V3</span></div>
+              <div class="debug-item"><strong>Scan Source:</strong> <span id="debug-scan-source">-</span></div>
+              
+              <div class="debug-full-item"><strong>Final Score Breakdown:</strong>
+                <div class="debug-breakdown-box">
+                  <div>Security: <span id="debug-breakdown-security">0/30</span></div>
+                  <div>Reputation: <span id="debug-breakdown-reputation">0/35</span></div>
+                  <div>Domain: <span id="debug-breakdown-domain">0/20</span></div>
+                  <div>Content: <span id="debug-breakdown-content">0/15</span></div>
+                  <div class="debug-breakdown-total">Total: <span id="debug-breakdown-total">0/100</span></div>
+                </div>
+              </div>
+
+              <div class="debug-item"><strong>VT Result:</strong> <span id="debug-vt-result">-</span></div>
+              <div class="debug-item"><strong>Domain Age:</strong> <span id="debug-domain-age">-</span></div>
+              <div class="debug-item"><strong>Redirects:</strong> <span id="debug-redirect-count">-</span></div>
+              <div class="debug-item"><strong>Login Form:</strong> <span id="debug-login-form">-</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Action Button Section -->
+        <div class="shelby-action-btn-container">
+          <button id="shelby-scan-again-btn" class="shelby-scan-again-btn">
+            <span>🔄</span> Scan Page Again
+          </button>
         </div>
-        <!-- Raw Context Preview Box -->
-        <div class="shelby-debug-preview-container">
-          <strong>Context Preview (First 300 chars):</strong>
-          <pre id="dbg-ctx-preview" class="shelby-debug-preview">(No context preview available)</pre>
+      </div>
+
+      <!-- Scan History View -->
+      <div id="view-history" class="shelby-view shelby-hidden">
+        <div class="shelby-history-header-card glass">
+          <h3 class="shelby-section-title">🕒 Recent Audits</h3>
+          <p class="shelby-history-desc">The last 10 websites you scanned and their calculated risk levels.</p>
         </div>
-      </section>
+        <ul id="shelby-history-list" class="shelby-history-list">
+          <!-- Populated dynamically -->
+        </ul>
+        <div class="shelby-history-actions">
+          <button id="shelby-clear-history-btn" class="shelby-clear-history-btn">🗑️ Clear Scan History</button>
+        </div>
+      </div>
 
     </main>
+
+    <!-- Shelby Says Advice Bubble Footer -->
+    <footer class="shelby-footer">
+      <div class="shelby-says-container">
+        <div class="shelby-says-avatar-container">
+          <img src="assets/shelby-icon-48.png" alt="Shelby" class="shelby-says-avatar">
+          <span class="shelby-says-name">Shelby Says:</span>
+        </div>
+        <div class="shelby-says-bubble">
+          <p id="shelby-says-text" class="shelby-says-text">Hi! I am Shelby, your internet trust companion. Let's audit this page to verify its safety metrics... 💖</p>
+        </div>
+      </div>
+    </footer>
 
   </div>
 

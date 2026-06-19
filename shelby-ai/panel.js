@@ -1,982 +1,525 @@
-// panel.js - Shelby AI Companion UI Management & Backend Integration
-// Implements V2.2 Startup Diagnostics, Safe DOM initialization, and Health Pings.
-
-console.log("[Shelby] Panel initialized");
+// panel.js - Side Panel UI Management & Backend V3 Communication
 
 let currentUrl = "";
-let currentContext = "General";
+let currentMode = "";
+let isDemoMode = false;
+let selectedText = null;
 let currentScanId = "";
-let pageContextText = "";
-let conversationContextText = "";
-let pageSelectedText = null;
-let currentDraftOptions = {};
-let chatHistory = [];
-let isVisionEnabled = true;
 
-// Client-side local cache (URL -> {data, clientTimestamp})
-const clientScanCache = {};
+// DOM Elements
+const modeBadge = document.getElementById('shelby-panel-mode-badge');
+const closeBtn = document.getElementById('close-panel-btn');
+const scanningLine = document.getElementById('shelby-scanning-line');
+const scoreValue = document.getElementById('shelby-score-value');
+const scoreFraction = document.getElementById('shelby-score-fraction');
+const scoreRing = document.getElementById('shelby-progress-ring-bar');
+const riskCategoryBadge = document.getElementById('shelby-risk-category');
+const scanAgainBtn = document.getElementById('shelby-scan-again-btn');
+const shelbySaysText = document.getElementById('shelby-says-text');
+const fallbackWarning = document.getElementById('shelby-fallback-warning');
+const confidenceRating = document.getElementById('shelby-confidence-rating');
+const confidenceValue = document.getElementById('shelby-confidence-value');
+const scanTimeLabel = document.getElementById('shelby-scan-time');
 
-// 1. Safe DOM Initialization and ID Validation
-const requiredElements = {
-  // Main header
-  featuresFound: 'shelby-features-found-id',
-  privacyToggleBtn: 'shelby-privacy-toggle-btn',
-  privacyText: 'shelby-privacy-text-id',
-  closeBtn: 'close-panel-btn',
-  scanningLine: 'shelby-scanning-line',
-  scanTimeLabel: 'shelby-scan-time',
-  visionOffWarning: 'shelby-vision-off-warning',
-  // Memory
-  memoryBox: 'shelby-memory-box',
-  memLastVisit: 'shelby-memory-last-visit',
-  memPrevAdvice: 'shelby-memory-prev-advice',
-  memChanges: 'shelby-memory-changes',
-  // Actions
-  suggestedActions: 'shelby-suggested-actions',
-  // Image Section
-  imageSection: 'shelby-image-section',
-  imagePreview: 'shelby-image-preview',
-  imageVerdict: 'shelby-image-verdict',
-  imageConfidence: 'shelby-image-confidence',
-  imageExplanation: 'shelby-image-explanation-id',
-  imageIndicators: 'shelby-image-indicators',
-  // Context findings
-  contextSection: 'shelby-context-section',
-  contextVerdict: 'shelby-context-verdict',
-  contextTrustScore: 'shelby-context-trust-score',
-  contextConfidence: 'shelby-context-confidence',
-  contextSummary: 'shelby-context-summary',
-  whySection: 'shelby-why-section-id',
-  whyList: 'shelby-why-list-id',
-  modeDetails: 'shelby-mode-details',
-  // Chat
-  chatLog: 'shelby-chat-log',
-  chatInput: 'shelby-chat-input',
-  chatSubmitBtn: 'shelby-chat-submit-btn',
-  // Debug Dashboard
-  dbgScanSource: 'dbg-scan-source',
-  dbgMode: 'dbg-mode',
-  dbgCtxQuality: 'dbg-ctx-quality',
-  dbgCtxLen: 'dbg-ctx-len',
-  dbgEvidenceCount: 'dbg-evidence-count',
-  dbgLastRequest: 'dbg-last-request',
-  dbgBackend: 'dbg-backend',
-  dbgOpenai: 'dbg-openai',
-  dbgLastScan: 'dbg-last-scan',
-  dbgCtxPreview: 'dbg-ctx-preview',
-  // Startup Diagnostics checklist
-  chkExtension: 'chk-extension',
-  chkContentScript: 'chk-content-script',
-  chkPanelInjected: 'chk-panel-injected',
-  chkPanelVisible: 'chk-panel-visible',
-  chkBackend: 'chk-backend',
-  chkOpenai: 'chk-openai',
-  diagErrorBox: 'shelby-diag-error-box',
-  diagErrorsList: 'shelby-diag-errors-list'
-};
+// Evidence Section DOM
+const evidenceSection = document.getElementById('shelby-evidence-section');
+const evidenceList = document.getElementById('shelby-evidence-list');
 
-const dom = {};
-const missingElements = [];
+// Why Shelby Thinks This DOM
+const detailsContent = document.getElementById('shelby-details-content');
 
-// Validate DOM IDs
-for (const [key, id] of Object.entries(requiredElements)) {
-  const el = document.getElementById(id);
-  if (el) {
-    dom[key] = el;
-  } else {
-    missingElements.push(id);
-    console.error(`[Shelby] Missing DOM element ID: ${id}`);
-  }
-}
+// Image Authenticity Analysis DOM
+const imageAuthSection = document.getElementById('shelby-image-authenticity-section');
+const imageVerdictVal = document.getElementById('image-verdict-val');
+const imageConfidenceVal = document.getElementById('image-confidence-val');
+const imageIndicatorsList = document.getElementById('image-indicators-list');
 
-// Render Startup DOM validation failures
-if (missingElements.length > 0) {
-  const errBox = document.getElementById('shelby-diag-error-box');
-  const errList = document.getElementById('shelby-diag-errors-list');
-  const chkPanel = document.getElementById('chk-panel-injected');
-  if (chkPanel) {
-    chkPanel.innerText = '❌ Panel Injected: Failed';
-    chkPanel.className = 'shelby-diag-checklist-item danger';
-  }
-  if (errBox && errList) {
-    errBox.classList.remove('shelby-hidden');
-    errList.innerHTML = missingElements.map(id => `<li>❌ Missing element: ${id}</li>`).join('');
-  }
-}
+// Tab Switching DOM
+const tabScan = document.getElementById('tab-scan');
+const tabHistory = document.getElementById('tab-history');
+const viewScan = document.getElementById('view-scan');
+const viewHistory = document.getElementById('view-history');
+const clearHistoryBtn = document.getElementById('shelby-clear-history-btn');
+const historyList = document.getElementById('shelby-history-list');
 
-// 2. Safe Event Listeners Binding Wrapper
-function safeBindEvent(element, eventType, callback) {
-  if (element) {
-    element.addEventListener(eventType, callback);
-  } else {
-    console.warn(`[Shelby] Cannot bind event '${eventType}' because element is null.`);
-  }
-}
+// Developer Debug Panel DOM
+const debugSection = document.getElementById('shelby-debug-section');
+const debugToggleBtn = document.getElementById('shelby-debug-toggle-btn');
+const debugContent = document.getElementById('shelby-debug-content');
+const debugScanSource = document.getElementById('debug-scan-source');
+const debugVTResult = document.getElementById('debug-vt-result');
+const debugDomainAge = document.getElementById('debug-domain-age');
+const debugRedirectCount = document.getElementById('debug-redirect-count');
+const debugLoginForm = document.getElementById('debug-login-form');
 
-// 3. Initialize Privacy Status Toggle
-async function initPrivacyToggle() {
-  const config = await chrome.storage.local.get('shelby_vision');
-  isVisionEnabled = config.shelby_vision !== false;
-  updatePrivacyUI(isVisionEnabled);
-}
+// Subscores Debug DOM
+const debugSecurity = document.getElementById('debug-breakdown-security');
+const debugReputation = document.getElementById('debug-breakdown-reputation');
+const debugDomain = document.getElementById('debug-breakdown-domain');
+const debugContentScore = document.getElementById('debug-breakdown-content');
+const debugTotal = document.getElementById('debug-breakdown-total');
 
-function updatePrivacyUI(enabled) {
-  isVisionEnabled = enabled;
-  if (enabled) {
-    if (dom.privacyToggleBtn) dom.privacyToggleBtn.className = 'shelby-privacy-badge vision-on';
-    if (dom.privacyText) dom.privacyText.innerText = 'Vision ON';
-    if (dom.visionOffWarning) dom.visionOffWarning.classList.add('shelby-hidden');
-  } else {
-    if (dom.privacyToggleBtn) dom.privacyToggleBtn.className = 'shelby-privacy-badge vision-off';
-    if (dom.privacyText) dom.privacyText.innerText = 'Vision OFF';
-    if (dom.visionOffWarning) dom.visionOffWarning.classList.remove('shelby-hidden');
-  }
-}
-
-// Verify backend connectivity before scans
-async function verifyBackendHealth() {
-  const healthUrl = "http://127.0.0.1:8000/health";
-  try {
-    const response = await fetch(healthUrl, { method: 'GET', cache: 'no-cache' });
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        reachable: true,
-        openai: data.openai_key_configured ? "✓ Available" : "❌ Key Missing"
-      };
-    }
-  } catch (err) {
-    // connection failure
-  }
-  return { reachable: false, openai: "❌ Offline" };
-}
-
-// Safe Bindings
-safeBindEvent(dom.privacyToggleBtn, 'click', async () => {
-  const config = await chrome.storage.local.get('shelby_vision');
-  const nextState = config.shelby_vision === false;
-  await chrome.storage.local.set({ 'shelby_vision': nextState });
-  updatePrivacyUI(nextState);
-  initializeScanSequence();
-});
-
-safeBindEvent(dom.closeBtn, 'click', () => {
-  window.parent.postMessage({ type: 'SHELBY_CLOSE_PANEL' }, '*');
-});
-
-safeBindEvent(dom.chatSubmitBtn, 'click', handleChatSubmit);
-safeBindEvent(dom.chatInput, 'keydown', (e) => {
-  if (e.key === 'Enter') handleChatSubmit();
-});
-
-// Message listener from parent/content script
-window.addEventListener('message', async (event) => {
+// Setup messaging listeners
+window.addEventListener('message', (event) => {
   const msg = event.data;
 
   if (msg.type === 'SHELBY_PANEL_OPENED') {
     currentUrl = msg.payload.url;
-    currentContext = msg.payload.mode;
-    pageSelectedText = msg.payload.selectedText;
-    
-    // Set Content Script connection status to green
-    if (dom.chkContentScript) {
-      dom.chkContentScript.innerText = "✓ Content Script Injected";
-      dom.chkContentScript.className = "shelby-diag-checklist-item success";
-    }
+    currentMode = msg.payload.mode;
+    isDemoMode = msg.payload.isDemo;
+    selectedText = msg.payload.selectedText;
 
-    // Apply dynamic webpage theme variables
-    if (msg.payload.theme) {
-      applyDynamicTheme(msg.payload.theme);
-    }
-    
-    if (msg.payload.focusInput && dom.chatInput) {
-      setTimeout(() => dom.chatInput.focus(), 150);
-    }
-
-    if (msg.payload.analyzeImage) {
-      handleImageAnalysis(msg.payload.analyzeImage);
-    } else {
-      initializeScanSequence();
-    }
+    // Reset panel view and trigger scan
+    initializeScanSequence();
   } else if (msg.type === 'SHELBY_SEND_SCRAPED_DATA') {
-    pageContextText = msg.payload.page_context || "";
-    conversationContextText = msg.payload.conversation_context || "";
-    verifyAndSendDataToBackend();
+    // We received the scraped DOM text and imageUrl, now call backend to audit
+    sendDataToBackend(msg.payload.scrapedText, msg.payload.selectedText, msg.payload.imageUrl);
   }
 });
 
-function applyDynamicTheme(theme) {
-  const root = document.documentElement;
-  root.style.setProperty('--theme-accent', theme.accentColor);
-  root.style.setProperty('--theme-bg', theme.dominantBg);
-  root.style.setProperty('--theme-text', theme.isDark ? '#F8F9FA' : '#2F3542');
-  root.style.setProperty('--theme-text-sec', theme.isDark ? '#A4B0BE' : '#747D8C');
-  root.style.setProperty('--theme-border', theme.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(108, 99, 255, 0.15)');
-  root.style.setProperty('--theme-card-bg', theme.isDark ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 249, 255, 0.65)');
-  root.style.setProperty('--theme-glow', theme.isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(108, 99, 255, 0.15)');
+// Close button logic
+closeBtn.addEventListener('click', () => {
+  window.parent.postMessage({ type: 'SHELBY_CLOSE_PANEL' }, '*');
+});
+
+// Scan Again button logic
+scanAgainBtn.addEventListener('click', () => {
+  initializeScanSequence();
+});
+
+// Tab Switching Event Listeners
+tabScan.addEventListener('click', () => {
+  tabScan.classList.add('active');
+  tabHistory.classList.remove('active');
+  viewScan.classList.remove('shelby-hidden');
+  viewHistory.classList.add('shelby-hidden');
+});
+
+tabHistory.addEventListener('click', () => {
+  tabScan.classList.remove('active');
+  tabHistory.classList.add('active');
+  viewScan.classList.add('shelby-hidden');
+  viewHistory.classList.remove('shelby-hidden');
+  loadRecentHistoryList();
+});
+
+// Clear history action
+clearHistoryBtn.addEventListener('click', async () => {
+  await chrome.storage.local.remove('shelby_history');
+  loadRecentHistoryList();
+});
+
+// Collapsible Developer Debug Panel
+debugToggleBtn.addEventListener('click', () => {
+  debugSection.classList.toggle('expanded');
+  debugContent.classList.toggle('shelby-hidden');
+});
+
+function initializeScanSequence() {
+  // 1. Reset state displays
+  scanningLine.classList.add('active');
+  scoreValue.innerText = '0';
+  scoreFraction.innerText = '0 / 100';
+  setProgressRing(0, '#6C63FF');
+  riskCategoryBadge.innerText = 'Auditing...';
+  riskCategoryBadge.className = 'shelby-risk-badge';
+  
+  confidenceRating.classList.add('shelby-hidden');
+  scanTimeLabel.classList.add('shelby-hidden');
+  fallbackWarning.classList.add('shelby-hidden');
+  
+  shelbySaysText.innerText = "Shelby is auditing this page's cybersecurity metrics... Hold on! 💖";
+  
+  evidenceSection.classList.add('shelby-hidden');
+  evidenceList.innerHTML = "";
+  
+  imageAuthSection.classList.add('shelby-hidden');
+  imageIndicatorsList.innerHTML = "";
+
+  detailsContent.innerHTML = `
+    <div class="shelby-scanning-placeholder">
+      <div class="shelby-pulse-dot"></div>
+      <span>Waiting for audit scan...</span>
+    </div>
+  `;
+  
+  scanAgainBtn.disabled = true;
+
+  // Set mode badge
+  modeBadge.innerText = getModeBadgeText(currentMode);
+
+  // Load and display scan history
+  loadRecentHistoryList();
+
+  // Request parent content script to scrape the DOM
+  window.parent.postMessage({ type: 'SHELBY_REQUEST_SCRAPE' }, '*');
+
+  // Update Mascot visual to scanning
+  window.parent.postMessage({
+    type: 'SHELBY_UPDATE_MASCOT_VISUAL',
+    payload: { state: 'scanning' }
+  }, '*');
 }
 
-async function initializeScanSequence() {
-  if (missingElements.length > 0) return; // Prevent crashes if DOM is corrupted
-
-  if (dom.scanningLine) dom.scanningLine.classList.add('active');
-  if (dom.scanTimeLabel) dom.scanTimeLabel.classList.add('shelby-hidden');
-  if (dom.imageSection) dom.imageSection.classList.add('shelby-hidden');
-  if (dom.memoryBox) dom.memoryBox.classList.add('shelby-hidden');
-  
-  // Set UI features checklist headers
-  setFeaturesChecklistHeader();
-  populateSuggestedActions();
-
-  // Reset context card details
-  if (dom.contextSection) dom.contextSection.classList.remove('shelby-hidden');
-  if (dom.contextVerdict) {
-    dom.contextVerdict.innerText = 'Analyzing...';
-    dom.contextVerdict.className = 'shelby-verdict-badge';
+function getModeBadgeText(mode) {
+  switch(mode) {
+    case 'Shopping Mode': return 'Shop Mode 🛒';
+    case 'Scam Mode': return 'Scam Mode 📧';
+    case 'Content Intelligence Mode': return 'Content AI 🤖';
+    default: return 'Trust Mode 🛡️';
   }
-  if (dom.contextTrustScore) dom.contextTrustScore.innerText = '--';
-  if (dom.contextConfidence) dom.contextConfidence.innerText = '--';
-  if (dom.contextSummary) dom.contextSummary.innerText = 'Shelby is analyzing the page content...';
-  if (dom.whyList) dom.whyList.innerHTML = "";
-  if (dom.modeDetails) dom.modeDetails.innerHTML = '';
+}
 
-  adaptChatLayoutHeight();
+// Communicate directly with local FastAPI backend
+async function sendDataToBackend(scrapedText, highlightedText, imageUrl) {
+  const backendUrl = "http://127.0.0.1:8000/api/scan";
+  
+  const payload = {
+    url: currentUrl,
+    mode: currentMode,
+    scraped_text: scrapedText,
+    selected_text: highlightedText || selectedText || null,
+    image_url: imageUrl || null
+  };
 
-  // Reset debug diagnostics
-  if (dom.dbgMode) dom.dbgMode.innerText = currentContext;
-  if (dom.dbgCtxLen) dom.dbgCtxLen.innerText = "0";
-  if (dom.dbgCtxQuality) dom.dbgCtxQuality.innerText = "--";
-  if (dom.dbgCtxPreview) dom.dbgCtxPreview.innerText = "(No context preview available)";
+  try {
+    const response = await fetch(backendUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
 
-  // If vision is disabled, skip scraping and backend scans entirely (Standalone Chat Mode)
-  if (!isVisionEnabled) {
-    if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-    if (dom.contextSection) dom.contextSection.classList.add('shelby-hidden');
-    
-    // Set Standalone Diagnostics
-    if (dom.dbgScanSource) dom.dbgScanSource.innerText = "Standalone Mode";
-    if (dom.dbgCtxLen) dom.dbgCtxLen.innerText = "0";
-    if (dom.dbgCtxQuality) dom.dbgCtxQuality.innerText = "--";
-    if (dom.dbgEvidenceCount) dom.dbgEvidenceCount.innerText = "--";
-    updateRequestStatus('No Scrape / Halted', true);
-    if (dom.dbgBackend) dom.dbgBackend.innerText = "Online";
-    if (dom.dbgOpenai) dom.dbgOpenai.innerText = "Online";
-    if (dom.dbgLastScan) dom.dbgLastScan.innerText = "0ms";
-    if (dom.dbgCtxPreview) dom.dbgCtxPreview.innerText = "Shelby Vision is OFF. Reading page context is disabled.";
-    
-    // Update startup diagnostics status values
-    const health = await verifyBackendHealth();
-    updateStartupDiagnosticsUI(health);
-    
-    appendChatMessage('assistant', "I'm running in Standalone Mode because Vision is OFF. Ask me general questions! 🦊");
+    if (!response.ok) {
+      throw new Error(`FastAPI responded with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    renderScanResults(data);
+  } catch (error) {
+    console.error('Shelby scan API connection error:', error);
+    showErrorState('Backend server offline');
+  }
+}
+
+function showErrorState(errMsg) {
+  scanningLine.classList.remove('active');
+  scoreValue.innerText = '0';
+  scoreFraction.innerText = '0 / 100';
+  setProgressRing(0, '#FF4757');
+  riskCategoryBadge.innerText = 'OFFLINE';
+  riskCategoryBadge.style.color = 'var(--danger)';
+  
+  shelbySaysText.innerText = `Oh dear, my cybersecurity engines are offline! Please verify the backend uvicorn server is running on port 8000. 💔`;
+  detailsContent.innerHTML = `<div class="shelby-scanning-placeholder"><span>Backend connection failed. (${errMsg})</span></div>`;
+  scanAgainBtn.disabled = false;
+  
+  window.parent.postMessage({
+    type: 'SHELBY_UPDATE_MASCOT_VISUAL',
+    payload: { state: 'danger' }
+  }, '*');
+}
+
+// Animate visual scores sequentially
+async function renderScanResults(data) {
+  currentScanId = data.scan_id;
+  const trustScore = data.trust_score;
+
+  // Determine colors based on risk category
+  const color = getScoreColor(trustScore);
+  const categoryName = data.risk_category;
+
+  // 1. Fill Overall trust gauge
+  animateCountUp(trustScore, scoreValue);
+  setProgressRing(trustScore, color);
+  
+  scoreFraction.innerText = `${trustScore} / 100`;
+  riskCategoryBadge.innerText = categoryName;
+  
+  // Style risk category text
+  riskCategoryBadge.style.color = color;
+
+  // Display Confidence score
+  confidenceValue.innerText = data.confidence || "High";
+  confidenceValue.className = "";
+  confidenceValue.classList.add(data.confidence ? data.confidence.toLowerCase() : "high");
+  confidenceRating.classList.remove('shelby-hidden');
+
+  // Display Scan Time
+  const durationSec = (data.scan_time_ms / 1000).toFixed(1);
+  scanTimeLabel.innerText = `Analyzed in ${durationSec}s`;
+  scanTimeLabel.classList.remove('shelby-hidden');
+
+  // Update Mascot visual based on risk levels
+  window.parent.postMessage({
+    type: 'SHELBY_UPDATE_MASCOT_VISUAL',
+    payload: { state: getScoreClass(trustScore) }
+  }, '*');
+
+  // 2. Render AI Fallback header alert if OpenAI fails
+  if (!data.ai_analyzed && data.scan_source === "Fallback") {
+    fallbackWarning.classList.remove('shelby-hidden');
+  } else {
+    fallbackWarning.classList.add('shelby-hidden');
+  }
+
+  // 3. Render Evidence Checklist
+  renderEvidenceChecklist(data.reasons_why);
+
+  // 4. Render Why Shelby Thinks This (Findings)
+  renderWhyShelbyThinksThis(data.findings);
+
+  // 5. Render Image Authenticity Analysis Card (Gemini Vision)
+  renderImageAuthenticity(data.deepfake_results);
+
+  // 6. Update Developer Debug Panel
+  renderDebugPanel(data);
+
+  // 7. Log scan to Recent Audits History list (chrome.storage.local)
+  const friendlyName = getFriendlyName(currentUrl);
+  await addScanToHistory(currentUrl, friendlyName, trustScore, categoryName, data.scan_source);
+
+  // 8. Turn off scanning line
+  scanningLine.classList.remove('active');
+  scanAgainBtn.disabled = false;
+
+  // 9. Typewriter effect for Shelby Says advice bubble
+  await sleep(200);
+  typewriterEffect(data.shelby_says, shelbySaysText);
+}
+
+function getScoreColor(score) {
+  if (score >= 80) return '#2ED573'; // Green
+  if (score >= 60) return '#FFA502'; // Yellow
+  if (score >= 40) return '#FF7F50'; // Orange
+  return '#FF4757'; // Red
+}
+
+function getScoreClass(score) {
+  if (score >= 80) return 'safe';
+  if (score >= 60) return 'warning';
+  if (score >= 40) return 'risky';
+  return 'danger';
+}
+
+function setProgressRing(percent, color) {
+  // Radius of the SVG circle is 32, circumference is 2 * PI * 32 = 201.06
+  const circumference = 201.06;
+  const offset = circumference - (percent / 100) * circumference;
+  scoreRing.style.strokeDashoffset = offset;
+  scoreRing.style.stroke = color;
+}
+
+function animateCountUp(target, element) {
+  let current = 0;
+  const step = Math.ceil(target / 20) || 1;
+  const timer = setInterval(() => {
+    current += step;
+    if (current >= target) {
+      element.innerText = target;
+      clearInterval(timer);
+    } else {
+      element.innerText = current;
+    }
+  }, 25);
+}
+
+function renderEvidenceChecklist(reasons) {
+  evidenceList.innerHTML = "";
+  if (!reasons || reasons.length === 0) {
+    evidenceSection.classList.add('shelby-hidden');
     return;
   }
 
-  // Request scraped text
-  window.parent.postMessage({ type: 'SHELBY_REQUEST_SCRAPE' }, '*');
-  window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'scanning' } }, '*');
+  reasons.forEach(reason => {
+    const li = document.createElement('li');
+    li.innerText = reason;
+    evidenceList.appendChild(li);
+  });
+
+  evidenceSection.classList.remove('shelby-hidden');
 }
 
-function updateStartupDiagnosticsUI(health) {
-  if (dom.chkBackend) {
-    if (health.reachable) {
-      dom.chkBackend.innerText = "✓ Backend Connected";
-      dom.chkBackend.className = "shelby-diag-checklist-item success";
-    } else {
-      dom.chkBackend.innerText = "❌ Backend Connected: Offline";
-      dom.chkBackend.className = "shelby-diag-checklist-item danger";
-    }
-  }
-  if (dom.chkOpenai) {
-    if (health.reachable && !health.openai.includes("❌")) {
-      dom.chkOpenai.innerText = "✓ OpenAI Available";
-      dom.chkOpenai.className = "shelby-diag-checklist-item success";
-    } else {
-      dom.chkOpenai.innerText = `❌ OpenAI Available: ${health.openai.replace(/^[❌✓]\s*/, '')}`;
-      dom.chkOpenai.className = "shelby-diag-checklist-item danger";
-    }
-  }
-}
-
-function setFeaturesChecklistHeader() {
-  if (!dom.featuresFound) return;
-  switch (currentContext) {
-    case 'Shopping':
-      dom.featuresFound.innerText = 'I found:\n🛒 Product\n⭐ Reviews\n💰 Pricing';
-      break;
-    case 'Research':
-    case 'News':
-      dom.featuresFound.innerText = 'I found:\n📚 Article\n🔍 Sources\n📝 Summary';
-      break;
-    case 'Jobs':
-      dom.featuresFound.innerText = 'I found:\n💼 Job details\n🛠️ Requirements\n💬 Tips';
-      break;
-    case 'Email':
-    case 'Messaging':
-      dom.featuresFound.innerText = 'I found:\n✉️ Message details\n📝 Suggested replies';
-      break;
-    default:
-      dom.featuresFound.innerText = 'I found:\n🌐 Webpage details';
-  }
-}
-
-function adaptChatLayoutHeight() {
-  if (!dom.chatLog) return;
-  if (currentContext === 'Research' || currentContext === 'News') {
-    dom.chatLog.style.maxHeight = '360px';
-    dom.chatLog.style.minHeight = '220px';
-  } else {
-    dom.chatLog.style.maxHeight = '180px';
-    dom.chatLog.style.minHeight = '120px';
-  }
-}
-
-function populateSuggestedActions() {
-  if (!dom.suggestedActions) return;
-  dom.suggestedActions.innerHTML = "";
+function renderWhyShelbyThinksThis(findings) {
+  detailsContent.innerHTML = "";
   
-  let actions = [];
-  switch (currentContext) {
-    case 'Shopping':
-      actions = [
-        { label: '🛒 Should I Buy?', prompt: 'Should I Buy This?' },
-        { label: '💬 Summarize Reviews', prompt: 'Summarize the reviews on this page.' },
-        { label: '⚖️ Compare Alternatives', prompt: 'Compare this product with main alternatives.' },
-        { label: '💰 Explain Pricing', prompt: 'Analyze this pricing and check for inflated MRP.' }
-      ];
-      break;
-    case 'Research':
-    case 'News':
-      actions = [
-        { label: '📚 Summarize Page', prompt: 'Summarize the content of this page in 5 points.' },
-        { label: '💡 Explain Simply', prompt: 'Explain the core concepts of this page simply.' },
-        { label: '📝 Generate Notes', prompt: 'Generate study notes based on this article.' },
-        { label: '🎓 Quiz Me', prompt: 'Ask me 3 multiple choice questions to test my understanding of this page.' }
-      ];
-      break;
-    case 'Jobs':
-      actions = [
-        { label: '🎓 Am I Qualified?', prompt: 'Am I qualified for this role? What skills does it require?' },
-        { label: '🛠️ Missing Skills', prompt: 'What skills are missing from this job description that I should learn?' },
-        { label: '💼 Interview Qs', prompt: 'Generate 5 common interview questions for this role.' },
-        { label: '📝 Cover Letter', prompt: 'Generate a short cover letter outline for this job.' }
-      ];
-      break;
-    case 'Email':
-      actions = [
-        { label: '✉️ Draft Reply', prompt: 'Draft a reply for this email.' },
-        { label: '👔 Make Formal', prompt: 'Rewrite the conversation in a formal tone.' },
-        { label: '✂️ Make Shorter', prompt: 'Summarize the email and make it shorter.' }
-      ];
-      break;
-    case 'Messaging':
-      actions = [
-        { label: '😊 Friendly Reply', prompt: 'Suggest a friendly reply for the last message.' },
-        { label: '👔 Formal Reply', prompt: 'Suggest a formal reply for the last message.' },
-        { label: '⚡ Gen Z Reply', prompt: 'Suggest a fun Gen Z reply.' }
-      ];
-      break;
-    default:
-      actions = [
-        { label: '📝 Summarize', prompt: 'Summarize the key information of this page.' },
-        { label: '💡 Explain simply', prompt: 'Explain what this website is about.' }
-      ];
+  if (!findings || findings.length === 0) {
+    detailsContent.innerHTML = `<div class="shelby-scanning-placeholder"><span>No explanation points generated.</span></div>`;
+    return;
   }
 
-  actions.forEach(act => {
-    const chip = document.createElement('button');
-    chip.className = 'shelby-action-chip';
-    chip.innerText = act.label;
-    chip.addEventListener('click', () => {
-      if (dom.chatInput) dom.chatInput.value = act.prompt;
-      handleChatSubmit();
+  const ul = document.createElement('ul');
+  findings.forEach(finding => {
+    const li = document.createElement('li');
+    li.innerText = finding;
+    ul.appendChild(li);
+  });
+  detailsContent.appendChild(ul);
+}
+
+function renderImageAuthenticity(deepfake) {
+  imageIndicatorsList.innerHTML = "";
+  
+  if (!deepfake) {
+    imageAuthSection.classList.add('shelby-hidden');
+    return;
+  }
+
+  imageVerdictVal.innerText = deepfake.verdict || "Likely Real";
+  imageConfidenceVal.innerText = deepfake.confidence || "Medium";
+  
+  // Style confidence color
+  imageConfidenceVal.className = "shelby-analysis-val";
+  if (deepfake.confidence) {
+    const conf = deepfake.confidence.toLowerCase();
+    if (conf === 'high') imageConfidenceVal.style.color = 'var(--success)';
+    if (conf === 'medium') imageConfidenceVal.style.color = 'var(--warning)';
+    if (conf === 'low') imageConfidenceVal.style.color = 'var(--danger)';
+  }
+
+  const indicators = deepfake.indicators || [];
+  if (indicators.length === 0) {
+    const li = document.createElement('li');
+    li.innerText = "✓ No abnormalities detected in this visual element.";
+    imageIndicatorsList.appendChild(li);
+  } else {
+    indicators.forEach(ind => {
+      const li = document.createElement('li');
+      li.innerText = ind;
+      imageIndicatorsList.appendChild(li);
     });
-    dom.suggestedActions.appendChild(chip);
+  }
+
+  imageAuthSection.classList.remove('shelby-hidden');
+}
+
+function renderDebugPanel(data) {
+  debugScanSource.innerText = data.scan_source || "AI";
+  debugVTResult.innerText = data.debug_info.vt_result || "-";
+  debugDomainAge.innerText = data.debug_info.domain_age || "-";
+  debugRedirectCount.innerText = data.debug_info.redirect_count !== undefined ? data.debug_info.redirect_count : "-";
+  debugLoginForm.innerText = data.debug_info.login_form || "-";
+
+  // Score breakdowns
+  debugSecurity.innerText = data.debug_info.security_score || "0/30";
+  debugReputation.innerText = data.debug_info.reputation_score || "0/35";
+  debugDomain.innerText = data.debug_info.domain_score || "0/20";
+  debugContentScore.innerText = data.debug_info.content_score || "0/15";
+  debugTotal.innerText = `${data.trust_score}/100`;
+}
+
+// Storage for Scan History (Last 10 audits)
+async function addScanToHistory(url, domain, score, category, source) {
+  const data = await chrome.storage.local.get('shelby_history');
+  let history = data.shelby_history || [];
+
+  // Filter out duplicates of identical urls
+  history = history.filter(item => item.url !== url);
+
+  // Add new scan details to the top of history
+  history.unshift({
+    url,
+    domain,
+    score,
+    category: getHistoryCategoryClass(category),
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    scan_source: source
+  });
+
+  // Limit list to last 10 scans
+  if (history.length > 10) {
+    history = history.slice(0, 10);
+  }
+
+  await chrome.storage.local.set({ 'shelby_history': history });
+}
+
+function getHistoryCategoryClass(category) {
+  if (category.includes("TRUST") || category.includes("SAFE")) return "safe";
+  if (category.includes("CAUTION")) return "caution";
+  if (category.includes("RISKY")) return "risky";
+  return "dangerous";
+}
+
+async function loadRecentHistoryList() {
+  const data = await chrome.storage.local.get('shelby_history');
+  const history = data.shelby_history || [];
+
+  historyList.innerHTML = "";
+
+  if (history.length === 0) {
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'shelby-history-empty';
+    emptyLi.style.textAlign = 'center';
+    emptyLi.style.padding = '30px 20px';
+    emptyLi.style.fontSize = '11px';
+    emptyLi.style.color = 'var(--text-secondary)';
+    emptyLi.innerText = 'No scan history yet. Try scanning a website! 🛡️';
+    historyList.appendChild(emptyLi);
+    return;
+  }
+
+  history.forEach(item => {
+    const li = document.createElement('li');
+    li.className = 'shelby-history-item';
+    li.innerHTML = `
+      <div class="shelby-history-site-box">
+        <span class="shelby-history-site">${item.domain}</span>
+        <span class="shelby-history-source">Source: ${item.scan_source || "AI"} | ${item.timestamp}</span>
+      </div>
+      <span class="shelby-history-badge ${item.category}">${item.score}%</span>
+    `;
+    historyList.appendChild(li);
   });
 }
 
-function updateRequestStatus(text, success) {
-  if (!dom.dbgLastRequest) return;
-  dom.dbgLastRequest.innerText = text;
-  if (success) {
-    dom.dbgLastRequest.className = 'dbg-status-label success';
-  } else {
-    dom.dbgLastRequest.className = 'dbg-status-label danger';
-  }
-}
-
-// Scrape length validation and transmission
-async function verifyAndSendDataToBackend() {
-  if (missingElements.length > 0) return;
-
-  const combinedLen = pageContextText.length + conversationContextText.length;
-  
-  if (dom.dbgCtxLen) dom.dbgCtxLen.innerText = combinedLen;
-  if (dom.dbgCtxPreview) dom.dbgCtxPreview.innerText = pageContextText ? pageContextText.slice(0, 300) : "(No context preview)";
-  
-  let quality = "Poor";
-  if (combinedLen > 3000) quality = "Excellent";
-  else if (combinedLen > 1500) quality = "Good";
-  else if (combinedLen > 500) quality = "Fair";
-  if (dom.dbgCtxQuality) dom.dbgCtxQuality.innerText = quality;
-
-  // 1. Minimum context validation
-  if (combinedLen < 200) {
-    if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-    if (dom.contextVerdict) {
-      dom.contextVerdict.innerText = 'INSUFFICIENT DATA';
-      dom.contextVerdict.className = 'shelby-verdict-badge danger';
-    }
-    if (dom.contextTrustScore) dom.contextTrustScore.innerText = '0%';
-    if (dom.contextConfidence) dom.contextConfidence.innerText = 'Low';
-    if (dom.contextSummary) dom.contextSummary.innerText = "I couldn't read enough information from this page.";
-    
-    if (dom.whyList) dom.whyList.innerHTML = "<li class='shelby-why-item'>✗ Not enough page content was extracted (under 200 chars).</li>";
-    updateRequestStatus('Context validation failed', false);
-    if (dom.dbgScanSource) dom.dbgScanSource.innerText = "Halted";
-    if (dom.dbgEvidenceCount) dom.dbgEvidenceCount.innerText = "1";
-    
-    window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'danger' } }, '*');
-    
-    const health = await verifyBackendHealth();
-    updateStartupDiagnosticsUI(health);
-    return;
-  }
-
-  // 2. Backend Health Verification before scanning
-  const health = await verifyBackendHealth();
-  updateStartupDiagnosticsUI(health);
-  
-  if (!health.reachable) {
-    if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-    if (dom.contextVerdict) {
-      dom.contextVerdict.innerText = 'Offline';
-      dom.contextVerdict.className = 'shelby-verdict-badge danger';
-    }
-    if (dom.contextSummary) {
-      dom.contextSummary.innerHTML = `<strong style="color:var(--danger)">Shelby backend offline.</strong><br/>Start backend by running:<br/><code style="font-family:monospace;background:rgba(0,0,0,0.05);padding:2px 4px;border-radius:4px;">uvicorn main:app --reload</code>`;
-    }
-    
-    // Display error box in Diagnostics UI
-    const errBox = document.getElementById('shelby-diag-error-box');
-    const errList = document.getElementById('shelby-diag-errors-list');
-    if (errBox && errList) {
-      errBox.classList.remove('shelby-hidden');
-      errList.innerHTML = `<li>❌ Backend unreachable: http://127.0.0.1:8000</li>`;
-    }
-    
-    updateRequestStatus('Backend offline', false);
-    if (dom.dbgScanSource) dom.dbgScanSource.innerText = "Offline Heuristics";
-    window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'danger' } }, '*');
-    return;
-  }
-
-  // Hide diagnostics error box if it was previously shown and backend is now online
-  const errBox = document.getElementById('shelby-diag-error-box');
-  if (errBox) errBox.classList.add('shelby-hidden');
-
-  // 3. Client-side local cache validation
-  const cached = clientScanCache[currentUrl];
-  if (cached && (Date.now() - cached.clientTimestamp < 21600000)) {
-    console.log("[Shelby] Client local Cache HIT for: " + currentUrl);
-    renderScanResults(cached.data, "Cached Result (Client)");
-    return;
-  }
-
-  // 4. Send to FastAPI scan endpoint
-  sendDataToBackend();
-}
-
-async function sendDataToBackend() {
-  const backendUrl = "http://127.0.0.1:8000/api/scan";
-  const payload = {
-    url: currentUrl,
-    mode: currentContext,
-    page_context: pageContextText,
-    conversation_context: conversationContextText || null,
-    selected_text: pageSelectedText
-  };
-
+function getFriendlyName(urlStr) {
   try {
-    const response = await fetch(backendUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      updateRequestStatus(`/api/scan - ${response.status} Error`, false);
-      throw new Error(`Status ${response.status}`);
+    const url = new URL(urlStr);
+    let host = url.hostname;
+    if (host.startsWith('www.')) {
+      host = host.substring(4);
     }
     
-    const data = await response.json();
-    updateRequestStatus('/api/scan - 200 OK', true);
+    // Explicit clean mapping for demo/test sites
+    if (host.includes('amazon.')) return 'Amazon';
+    if (host.includes('flipkart.')) return 'Flipkart';
+    if (host.includes('meesho.')) return 'Meesho';
+    if (host.includes('myntra.')) return 'Myntra';
+    if (host.includes('snapdeal.')) return 'Snapdeal';
+    if (host.includes('ajio.')) return 'Ajio';
+    if (host.includes('wikipedia.')) return 'Wikipedia';
+    if (host.includes('linkedin.')) return 'LinkedIn';
+    if (host.includes('google.')) return 'Google';
     
-    data.clientTimestamp = Date.now();
-    clientScanCache[currentUrl] = { data, clientTimestamp: Date.now() };
-
-    renderScanResults(data);
-  } catch (error) {
-    console.error('[Shelby] Scan API fetch error:', error);
-    showErrorState('Backend server connection failure');
+    const parts = host.split('.');
+    if (parts.length > 0) {
+      let name = parts[0];
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }
+    return host;
+  } catch (e) {
+    return "Unknown Site";
   }
 }
 
-function showErrorState(msg) {
-  if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-  if (dom.contextVerdict) {
-    dom.contextVerdict.innerText = 'Offline';
-    dom.contextVerdict.className = 'shelby-verdict-badge danger';
+// Typewriter effect logic
+function typewriterEffect(text, element) {
+  element.innerText = "";
+  let i = 0;
+  const speed = 20;
+
+  function type() {
+    if (i < text.length) {
+      element.innerHTML += text.charAt(i);
+      i++;
+      setTimeout(type, speed);
+    }
   }
-  if (dom.contextSummary) dom.contextSummary.innerText = `Shelby couldn't connect to the backend server. Make sure it is running. (${msg})`;
-  if (dom.dbgBackend) dom.dbgBackend.innerText = "Offline";
-  if (dom.dbgOpenai) dom.dbgOpenai.innerText = "Offline";
-  if (dom.dbgScanSource) dom.dbgScanSource.innerText = "Local Heuristics";
-  window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: 'danger' } }, '*');
+  type();
 }
 
-// Render dynamic results
-async function renderScanResults(data, customSource = null) {
-  if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-  currentScanId = data.scan_id;
-  
-  if (dom.scanTimeLabel) {
-    const durationSec = (data.scan_time_ms / 1000).toFixed(1);
-    dom.scanTimeLabel.innerText = `${durationSec}s`;
-    dom.scanTimeLabel.classList.remove('shelby-hidden');
-  }
-
-  // Render Verdict/Recommendation Badge
-  const rec = data.recommendation;
-  if (dom.contextVerdict) {
-    dom.contextVerdict.innerText = rec;
-    let verdictClass = 'warning';
-    if (['buy signal', 'strong sources', 'qualified', 'low risk', 'buy'].includes(rec.toLowerCase())) verdictClass = 'safe';
-    if (['avoid', 'weak sources', 'not recommended', 'high risk', 'insufficient data'].includes(rec.toLowerCase())) verdictClass = 'danger';
-    dom.contextVerdict.className = `shelby-verdict-badge ${verdictClass}`;
-    window.parent.postMessage({ type: 'SHELBY_UPDATE_MASCOT_VISUAL', payload: { state: verdictClass } }, '*');
-  }
-
-  if (dom.contextTrustScore) dom.contextTrustScore.innerText = `${data.trust_score}%`;
-  if (dom.contextConfidence) dom.contextConfidence.innerText = data.confidence;
-  if (dom.contextSummary) dom.contextSummary.innerText = data.shelby_says || '';
-
-  // Render "Why?" evidence points
-  if (dom.whyList) {
-    dom.whyList.innerHTML = "";
-    (data.why_explanation || []).forEach(point => {
-      const li = document.createElement('li');
-      li.className = 'shelby-why-item';
-      
-      let icon = '▪';
-      if (point.startsWith('✓') || point.startsWith('👍') || point.toLowerCase().includes('secure') || point.toLowerCase().includes('rating >')) {
-        icon = '✓';
-        li.style.color = '#218c53';
-      } else if (point.startsWith('⚠') || point.startsWith('👎') || point.toLowerCase().includes('anomaly') || point.toLowerCase().includes('average')) {
-        icon = '⚠';
-        li.style.color = '#c0392b';
-      } else if (point.startsWith('✗')) {
-        icon = '✗';
-        li.style.color = '#c0392b';
-      }
-      
-      const cleanPoint = point.replace(/^[✓⚠✗👍👎▪]\s*/, '');
-      li.innerText = `${icon} ${cleanPoint}`;
-      dom.whyList.appendChild(li);
-    });
-  }
-
-  if (dom.modeDetails) {
-    dom.modeDetails.innerHTML = '';
-    renderModeDetails(data.details);
-  }
-
-  await checkAndRenderMemory(data);
-
-  // Diagnostics Panel Updates
-  if (dom.dbgScanSource) dom.dbgScanSource.innerText = customSource || data.scan_source || "AI";
-  if (dom.dbgEvidenceCount) dom.dbgEvidenceCount.innerText = data.evidence_count || "0";
-  if (dom.dbgBackend) dom.dbgBackend.innerText = "Online";
-  if (dom.dbgOpenai) dom.dbgOpenai.innerText = data.openai_status || "Online";
-  if (dom.dbgLastScan) dom.dbgLastScan.innerText = `${data.scan_time_ms}ms`;
-}
-
-function renderModeDetails(details) {
-  if (currentContext === 'Shopping') {
-    const grid = document.createElement('div');
-    grid.className = 'shelby-pros-cons-grid';
-
-    // Best For Card
-    const bestFor = details.best_for || [];
-    if (bestFor.length > 0) {
-      const card = document.createElement('div');
-      card.className = 'shelby-pro-card';
-      card.innerHTML = `<h4>👍 Best For:</h4><ul class="shelby-detail-sublist">${bestFor.map(b => `<li class="shelby-detail-subitem">✓ ${b}</li>`).join('')}</ul>`;
-      grid.appendChild(card);
-    }
-
-    // Red Flags Card
-    const redFlags = details.red_flags || [];
-    if (redFlags.length > 0) {
-      const card = document.createElement('div');
-      card.className = 'shelby-con-card';
-      card.innerHTML = `<h4>⚠ Red Flags:</h4><ul class="shelby-detail-sublist">${redFlags.map(r => `<li class="shelby-detail-subitem">⚠ ${r}</li>`).join('')}</ul>`;
-      grid.appendChild(card);
-    }
-
-    // Pricing Card
-    const price = details.price_analysis;
-    if (price) {
-      const card = document.createElement('div');
-      card.className = 'shelby-analysis-card';
-      card.innerHTML = `
-        <div class="shelby-analysis-title">💰 Price Analysis (${price.current_price || ''})</div>
-        <p><strong>Discount:</strong> ${price.discount_analysis || 'N/A'}</p>
-        <p style="margin-top:4px;">${price.explanation || ''}</p>
-      `;
-      grid.appendChild(card);
-    }
-
-    // Reviews Card
-    const rev = details.review_analysis;
-    if (rev) {
-      const card = document.createElement('div');
-      card.className = 'shelby-analysis-card';
-      card.innerHTML = `
-        <div class="shelby-analysis-title">⭐ Review Integrity (${rev.rating_quality || ''})</div>
-        <p><strong>Total Scanned:</strong> ${rev.review_count || ''}</p>
-        <p><strong>Sentiment:</strong> ${rev.sentiment || 'Mixed'}</p>
-      `;
-      grid.appendChild(card);
-    }
-
-    dom.modeDetails.appendChild(grid);
-
-  } else if (currentContext === 'Research' || currentContext === 'News') {
-    const list = document.createElement('div');
-    list.className = 'shelby-pros-cons-grid';
-
-    const summaryPoints = details.summary || [];
-    if (summaryPoints.length > 0) {
-      const card = document.createElement('div');
-      card.className = 'shelby-analysis-card';
-      card.innerHTML = `
-        <div class="shelby-analysis-title">📝 Key Points</div>
-        <ul class="shelby-detail-sublist">${summaryPoints.map(p => `<li class="shelby-detail-subitem">• ${p}</li>`).join('')}</ul>
-      `;
-      list.appendChild(card);
-    }
-
-    const cardCred = document.createElement('div');
-    cardCred.className = 'shelby-analysis-card';
-    cardCred.innerHTML = `
-      <div class="shelby-analysis-title">🔍 Credibility Assessment</div>
-      <p>Source Quality: ${details.source_quality || 'Good'}</p>
-      <p>${details.credibility || ''}</p>
-      ${details.bias_analysis ? `<p style="margin-top:4px"><strong>Bias Indicators:</strong> ${details.bias_analysis}</p>` : ''}
-    `;
-    list.appendChild(cardCred);
-
-    dom.modeDetails.appendChild(list);
-
-  } else if (currentContext === 'Jobs') {
-    const grid = document.createElement('div');
-    grid.className = 'shelby-pros-cons-grid';
-
-    const req = details.required_skills || [];
-    const mis = details.missing_skills || [];
-    const cardSkills = document.createElement('div');
-    cardSkills.className = 'shelby-pro-card';
-    cardSkills.innerHTML = `
-      <h4>🛠️ Skill Analysis</h4>
-      <p><strong>Required:</strong> ${req.join(', ') || 'None'}</p>
-      <p style="margin-top:4px"><strong>Suggested to Learn:</strong> ${mis.join(', ') || 'None'}</p>
-    `;
-    grid.appendChild(cardSkills);
-
-    const tips = details.resume_tips || [];
-    const qs = details.interview_questions || [];
-    const cardTips = document.createElement('div');
-    cardTips.className = 'shelby-analysis-card';
-    cardTips.innerHTML = `
-      <div class="shelby-analysis-title">📝 Interview & Resume Tips</div>
-      <p><strong>Resume Tips:</strong> ${tips.join(' | ') || 'None'}</p>
-      <p style="margin-top:6px"><strong>Practice Questions:</strong></p>
-      <ul class="shelby-detail-sublist">${qs.map(q => `<li class="shelby-detail-subitem">? ${q}</li>`).join('')}</ul>
-    `;
-    grid.appendChild(cardTips);
-
-    dom.modeDetails.appendChild(grid);
-
-  } else if (currentContext === 'Email' || currentContext === 'Messaging') {
-    const container = document.createElement('div');
-    container.className = 'shelby-reply-generator';
-
-    const header = document.createElement('div');
-    header.className = 'shelby-suggested-label';
-    header.innerText = '⚡ Contextual Suggested Replies:';
-    container.appendChild(header);
-
-    currentDraftOptions = details.draft_options || {};
-
-    const styleSelector = document.createElement('div');
-    styleSelector.className = 'shelby-style-selector';
-    
-    const draftBox = document.createElement('div');
-    draftBox.className = 'shelby-draft-display-box';
-    draftBox.innerText = 'Select a style to generate a reply draft...';
-
-    const insertBtn = document.createElement('button');
-    insertBtn.className = 'shelby-insert-btn shelby-hidden';
-    insertBtn.innerText = '📥 Insert Reply';
-    insertBtn.addEventListener('click', () => {
-      const txt = draftBox.innerText;
-      window.parent.postMessage({ type: 'SHELBY_INSERT_REPLY', payload: { text: txt } }, '*');
-    });
-
-    const styles = Object.keys(currentDraftOptions);
-    styles.forEach((styleName, idx) => {
-      const chip = document.createElement('button');
-      chip.className = `shelby-style-chip ${idx === 0 ? 'active' : ''}`;
-      chip.innerText = styleName;
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.shelby-style-chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        draftBox.innerText = currentDraftOptions[styleName] || 'No draft available.';
-        insertBtn.classList.remove('shelby-hidden');
-      });
-      styleSelector.appendChild(chip);
-      
-      if (idx === 0) {
-        setTimeout(() => {
-          draftBox.innerText = currentDraftOptions[styleName] || '';
-          insertBtn.classList.remove('shelby-hidden');
-        }, 50);
-      }
-    });
-
-    container.appendChild(styleSelector);
-    container.appendChild(draftBox);
-    container.appendChild(insertBtn);
-    dom.modeDetails.appendChild(container);
-  }
-}
-
-// Memory logs comparison using chrome.storage.local
-async function checkAndRenderMemory(data) {
-  if (!dom.memoryBox) return;
-  const urlKey = `shelby_log_v2_${currentUrl}`;
-  const now = Date.now();
-  const dateStr = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  
-  const storageData = await chrome.storage.local.get(urlKey);
-  const prevScan = storageData[urlKey];
-
-  const currentRec = data.recommendation;
-  let currentPrice = null;
-  let currentReviews = null;
-
-  if (currentContext === 'Shopping') {
-    const priceStr = data.details.price_analysis?.current_price;
-    const revStr = data.details.review_analysis?.review_count;
-    if (priceStr) {
-      const num = priceStr.replace(/[^\d]/g, '');
-      currentPrice = num ? parseInt(num) : null;
-    }
-    if (revStr) {
-      const num = revStr.replace(/[^\d]/g, '');
-      currentReviews = num ? parseInt(num) : null;
-    }
-  }
-
-  const newLog = {
-    timestamp: now,
-    date: dateStr,
-    verdict: currentRec,
-    price: currentPrice,
-    reviews: currentReviews
-  };
-  await chrome.storage.local.set({ [urlKey]: newLog });
-
-  if (!prevScan) {
-    dom.memoryBox.classList.add('shelby-hidden');
-    return;
-  }
-
-  if (dom.memLastVisit) dom.memLastVisit.innerText = `Last Visit: ${prevScan.date || 'unknown'}`;
-  if (dom.memPrevAdvice) dom.memPrevAdvice.innerText = `Previous Advice: ${prevScan.verdict || 'none'}`;
-  
-  let changesList = [];
-  if (currentPrice !== null && prevScan.price !== null) {
-    const diff = currentPrice - prevScan.price;
-    if (diff < 0) {
-      changesList.push(`Price ↓ ₹${Math.abs(diff)}`);
-    } else if (diff > 0) {
-      changesList.push(`Price ↑ ₹${Math.abs(diff)}`);
-    }
-  }
-  if (currentReviews !== null && prevScan.reviews !== null) {
-    const diff = currentReviews - prevScan.reviews;
-    if (diff > 0) {
-      changesList.push(`Reviews ↑ ${diff}`);
-    }
-  }
-  
-  if (dom.memChanges) {
-    if (changesList.length > 0) {
-      dom.memChanges.innerText = `Changes: ${changesList.join(', ')}`;
-    } else {
-      dom.memChanges.innerText = `Changes: No updates detected.`;
-    }
-  }
-
-  dom.memoryBox.classList.remove('shelby-hidden');
-}
-
-// Right-click Image Vision API handler
-async function handleImageAnalysis(imageUrl) {
-  if (dom.scanningLine) dom.scanningLine.classList.add('active');
-  if (dom.contextSection) dom.contextSection.classList.add('shelby-hidden');
-  if (dom.memoryBox) dom.memoryBox.classList.add('shelby-hidden');
-  
-  if (dom.imageSection) dom.imageSection.classList.remove('shelby-hidden');
-  if (dom.imagePreview) dom.imagePreview.src = imageUrl;
-  if (dom.imageVerdict) {
-    dom.imageVerdict.innerText = 'Analyzing...';
-    dom.imageVerdict.className = 'shelby-verdict-badge warning';
-  }
-  if (dom.imageConfidence) {
-    dom.imageConfidence.innerText = 'Low';
-    dom.imageConfidence.className = 'shelby-confidence-value low';
-  }
-  if (dom.imageExplanation) dom.imageExplanation.innerText = 'Shelby is analyzing the image authenticity context...';
-  if (dom.imageIndicators) dom.imageIndicators.innerHTML = '';
-
-  const backendUrl = "http://127.0.0.1:8000/api/analyze-image";
-  
-  try {
-    const resBlob = await fetch(imageUrl);
-    const blob = await resBlob.blob();
-    const reader = new FileReader();
-    reader.readAsDataURL(blob);
-    
-    reader.onloadend = async () => {
-      const base64data = reader.result;
-      
-      const response = await fetch(backendUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_data: base64data })
-      });
-      
-      if (!response.ok) {
-        updateRequestStatus(`/api/analyze-image - ${response.status} Error`, false);
-        throw new Error(`Status ${response.status}`);
-      }
-      
-      const data = await response.json();
-      updateRequestStatus('/api/analyze-image - 200 OK', true);
-      
-      if (dom.imageVerdict) {
-        dom.imageVerdict.innerText = data.verdict;
-        let badgeClass = 'warning';
-        if (data.verdict.toLowerCase().includes('likely real')) badgeClass = 'safe';
-        if (data.verdict.toLowerCase().includes('likely ai generated')) badgeClass = 'danger';
-        dom.imageVerdict.className = `shelby-verdict-badge ${badgeClass}`;
-      }
-      
-      if (dom.imageConfidence) {
-        dom.imageConfidence.innerText = data.confidence;
-        dom.imageConfidence.className = `shelby-confidence-value ${data.confidence.toLowerCase()}`;
-      }
-      if (dom.imageExplanation) dom.imageExplanation.innerText = data.explanation;
-      
-      if (dom.imageIndicators) {
-        dom.imageIndicators.innerHTML = '';
-        (data.indicators || []).forEach(ind => {
-          const li = document.createElement('li');
-          li.className = 'shelby-indicators-item';
-          li.innerText = ind;
-          dom.imageIndicators.appendChild(li);
-        });
-      }
-      
-      if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-      appendChatMessage('assistant', `I finished analyzing this image. Verdict: ${data.verdict}. Confidence is ${data.confidence}. 🦊`);
-    };
-  } catch (error) {
-    console.error('[Shelby] Image analysis fetch error:', error);
-    if (dom.imageVerdict) {
-      dom.imageVerdict.innerText = 'Error';
-      dom.imageVerdict.className = 'shelby-verdict-badge danger';
-    }
-    if (dom.imageExplanation) dom.imageExplanation.innerText = `Shelby couldn't analyze the image. (${error.message})`;
-    if (dom.scanningLine) dom.scanningLine.classList.remove('active');
-  }
-}
-
-// Chat log message handlers
-function appendChatMessage(role, text) {
-  if (!dom.chatLog) return;
-  const msg = document.createElement('div');
-  msg.className = `shelby-chat-message ${role}`;
-  msg.innerText = text;
-  dom.chatLog.appendChild(msg);
-  dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
-  
-  chatHistory.push({ role, content: text });
-}
-
-async function handleChatSubmit() {
-  if (missingElements.length > 0 || !dom.chatInput) return;
-  
-  const query = dom.chatInput.value.trim();
-  if (!query) return;
-
-  appendChatMessage('user', query);
-  dom.chatInput.value = '';
-  
-  dom.chatInput.disabled = true;
-  if (dom.chatSubmitBtn) dom.chatSubmitBtn.disabled = true;
-
-  const backendUrl = "http://127.0.0.1:8000/api/ask";
-  
-  const payload = {
-    scan_id: isVisionEnabled ? (currentScanId || "unknown") : "standalone",
-    question: query,
-    history: chatHistory.map(h => ({ role: h.role, content: h.content }))
-  };
-
-  try {
-    const response = await fetch(backendUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      updateRequestStatus(`/api/ask - ${response.status} Error`, false);
-      throw new Error(`Status ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const isStandalone = !isVisionEnabled;
-    updateRequestStatus(`/api/ask - 200 OK${isStandalone ? ' (Standalone)' : ''}`, true);
-    
-    appendChatMessage('assistant', data.answer);
-  } catch (error) {
-    console.error('[Shelby] Chat question API error:', error);
-    appendChatMessage('assistant', "Oh dear! My communication circuits went offline. Please check your backend. 💔");
-  } finally {
-    if (dom.chatInput) dom.chatInput.disabled = false;
-    if (dom.chatSubmitBtn) dom.chatSubmitBtn.disabled = false;
-    if (dom.chatInput) dom.chatInput.focus();
-  }
-}
-
-// Startup Initialization Wrapper
-try {
-  initPrivacyToggle();
-} catch (err) {
-  console.error("[Shelby Startup Error]", err);
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
